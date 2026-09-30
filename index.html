@@ -27,9 +27,10 @@
                 font: 16px/1.55 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
                 -webkit-font-smoothing: antialiased;
             }
-            canvas { display: block; }
+            /* Stacking scale (low -> high): canvas 0, HUD 10, splash 30, banner 40. */
+            canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
             .hidden { display: none !important; }
-            .ux { position: fixed; z-index: 5; }
+            .ux { position: fixed; z-index: 10; }
 
             /* ---------- typography ---------- */
             h1, h2, h3 { letter-spacing: 0.01em; }
@@ -69,7 +70,7 @@
             input[type="text"]:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(230, 185, 106, 0.18); }
 
             /* ---------- title screen (split) ---------- */
-            #splash { position: fixed; inset: 0; z-index: 9; display: grid; grid-template-columns: minmax(20rem, 30rem) 1fr; transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
+            #splash { position: fixed; inset: 0; z-index: 30; display: grid; grid-template-columns: minmax(20rem, 30rem) 1fr; transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
             #splash::after {
                 content: ""; position: absolute; inset: 0; pointer-events: none;
                 background: linear-gradient(90deg, rgba(11, 9, 7, 0.96) 0%, rgba(11, 9, 7, 0.82) 32%, rgba(11, 9, 7, 0.18) 58%, rgba(11, 9, 7, 0) 78%);
@@ -113,16 +114,19 @@
             }
             @keyframes pop { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
             #top {
-                top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-                padding: 0.85rem 1.15rem; background: linear-gradient(rgba(9, 7, 5, 0.86), transparent);
+                top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 0.9rem;
+                padding: 0.7rem 1.1rem; background: linear-gradient(rgba(9, 7, 5, 0.92), rgba(9, 7, 5, 0.62) 70%, transparent);
+                pointer-events: none;
             }
+            #top > * { pointer-events: auto; }
+            #top #brief { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             #top h1 { font-size: 1.06rem; margin: 0; }
             #top h1 span { color: var(--gold); }
             #brief { max-width: 34rem; color: var(--dim); font-size: 0.9rem; }
             #status { color: var(--dim); font-size: 0.85rem; }
 
             #panel {
-                right: 1.15rem; top: 4.6rem; width: min(27rem, 92vw); max-height: calc(100vh - 6.2rem);
+                right: 1.15rem; top: 4.6rem; width: min(27rem, 92vw); max-height: calc(100vh - 6.4rem);
                 background: var(--panel); border: 1px solid var(--line); border-radius: 15px; padding: 1.05rem;
                 overflow: auto; backdrop-filter: blur(10px); box-shadow: var(--shadow);
                 animation: panelIn 0.28s var(--ease) both;
@@ -143,11 +147,20 @@
             .flag { color: var(--red); font-weight: 700; }
             .ok { color: var(--green); }
             #banner {
-                position: fixed; z-index: 8; top: 4.6rem; left: 50%; transform: translateX(-50%); max-width: 42rem;
+                position: fixed; z-index: 40; top: 4.6rem; left: 50%; transform: translateX(-50%); max-width: 42rem;
                 background: rgba(62, 22, 20, 0.95); border: 1px solid var(--red); border-radius: 12px; padding: 0.65rem 1.05rem;
                 box-shadow: var(--shadow); animation: pop 0.25s var(--ease) both;
             }
             audio { width: 100%; margin-top: 0.45rem; }
+            @media (max-width: 720px) {
+                #top #brief { display: none; }
+                #panel {
+                    right: 0; left: 0; top: auto; bottom: 0; width: 100%;
+                    max-height: 62vh; border-radius: 16px 16px 0 0;
+                }
+                #notes { left: 0.6rem; right: 0.6rem; width: auto; bottom: 0.6rem; max-height: 30vh; }
+                #panel:not(.hidden) ~ #notes { display: none; }
+            }
             /* ---------- custom voice player ---------- */
             .player {
                 display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem;
