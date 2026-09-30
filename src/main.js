@@ -1,0 +1,289 @@
+// Whodunnit 3D — integrator. Ties the case engine, the 3D modules and the API
+// together. Each 3D module owns one file; this file owns the wiring only.
+
+import * as THREE from "three";
+import { generateCase, gradeAccusation, replyRequest, resolveAccusation } from "../case.js";
+import { api } from "./api.js";
+import { ROOMS, buildEnvironment } from "./env.js";
+import { buildSuspects } from "./people.js";
+import { buildDecor } from "./decor.js";
+import { createFirstPerson } from "./controls.js";
+
+const $ = (id) => document.getElementById(id);
+
+const ui = {
+    banner: $("banner"),
+    splash: $("splash"),
+    splashConnect: $("splash-connect"),
+    splashStart: $("splash-start"),
+    splashHint: $("splash-hint"),
+    top: $("top"),
+    brief: $("brief"),
+    status: $("status"),
+    accuse: $("accuse"),
+    crosshair: $("crosshair"),
+    hint: $("hint"),
+    panel: $("panel"),
+    pName: $("p-name"),
+    pRole: $("p-role"),
+    log: $("log"),
+    q: $("q"),
+    ask: $("ask"),
+    mic: $("mic"),
+    voice: $("voice"),
+    close: $("close"),
+    notes: $("notes"),
+    noteList: $("note-list"),
+    contradiction: $("contradiction"),
+};
+
+let bannerTimer = null;
+function showError(message) {
+    ui.banner.textContent = message;
+    ui.banner.classList.remove("hidden");
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => ui.banner.classList.add("hidden"), 9000);
+}
+
+const escapeHtml = (value) =>
+    String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// ---------------------------------------------------------------- game state
+
+const game = {
+    seed: Number(new URLSearchParams(location.search).get("seed")) || (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+    data: null,
+    suspects: [], // controllers from people.js
+    byId: new Map(),
+    history: {}, // suspectId -> messages
+    claimed: {}, // suspectId -> [claim strings]
+    target: null,
+    open: null, // suspect currently being interviewed
+};
+
+// ---------------------------------------------------------------- scene
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200);
+const clock = new THREE.Clock();
+
+const env = buildEnvironment(scene, THREE);
+const decor = buildDecor(scene, THREE, env.rooms);
+const controls = createFirstPerson(camera, renderer.domElement, env.colliders, env.spawn, THREE);
+
+// Place the five suspects at the five room anchors, in order.
+game.data = generateCase(game.seed);
+const anchors = ROOMS.map((name) => env.anchors[name]);
+game.suspects = buildSuspects(game.data.suspects, anchors, THREE);
+for (const controller of game.suspects) {
+    scene.add(controller.group);
+    game.byId.set(controller.id, controller);
+}
+
+ui.brief.textContent = game.data.intro;
+ui.status.textContent = api.signedIn() ? "connected" : "";
+ui.splashStart.disabled = !api.signedIn();
+
+// ---------------------------------------------------------------- interaction
+
+const raycaster = new THREE.Raycaster();
+const centre = new THREE.Vector2(0, 0);
+
+function pickSuspect() {
+    raycaster.setFromCamera(centre, camera);
+    const hits = raycaster.intersectObjects(game.suspects.map((s) => s.group), true);
+    for (const hit of hits) {
+        let node = hit.object;
+        while (node && !node.userData.suspectId) node = node.parent;
+        if (node?.userData.suspectId) return game.byId.get(node.userData.suspectId) ?? null;
+    }
+    return null;
+}
+
+function updateTarget() {
+    if (game.open) return;
+    game.target = pickSuspect();
+    ui.hint.classList.toggle("hidden", !game.target);
+}
+
+addEventListener("keydown", (event) => {
+    if (event.code === "KeyE" && game.target && !game.open) openInterview(game.target);
+    if (event.code === "Escape" && game.open) closeInterview();
+});
+
+renderer.domElement.addEventListener("click", () => {
+    if (!api.signedIn()) return;
+    if (!controls.isLocked()) controls.lock();
+});
+
+// ---------------------------------------------------------------- interview
+
+function openInterview(controller) {
+    game.open = controller;
+    const suspect = game.data.suspects.find((s) => s.id === controller.id);
+    ui.pName.textContent = suspect.name;
+    ui.pRole.textContent = suspect.role;
+    ui.log.innerHTML = "";
+    for (const entry of game.history[controller.id] ?? []) {
+        if (entry.role === "user") addLog("q", `You: ${entry.content}`);
+        else {
+            try {
+                addLog("a", `${suspect.name}: ${JSON.parse(entry.content).say}`);
+            } catch {
+                addLog("a", `${suspect.name}: ${entry.content}`);
+            }
+        }
+    }
+    ui.panel.classList.remove("hidden");
+    controls.dispose?.(); // release pointer lock while typing
+    ui.q.focus();
+}
+
+function closeInterview() {
+    game.open = null;
+    ui.panel.classList.add("hidden");
+}
+
+function addLog(kind, text) {
+    const line = document.createElement("div");
+    line.className = kind;
+    line.textContent = text;
+    ui.log.appendChild(line);
+    ui.log.scrollTop = ui.log.scrollHeight;
+}
+
+async function ask(text) {
+    const controller = game.open;
+    if (!controller || !text.trim()) return;
+    const suspect = game.data.suspects.find((s) => s.id === controller.id);
+    addLog("q", `You: ${text}`);
+    ui.q.value = "";
+    const pending = document.createElement("div");
+    pending.className = "dim";
+    pending.textContent = `${suspect.name} considers the question…`;
+    ui.log.appendChild(pending);
+
+    try {
+        const history = game.history[suspect.id] ?? [];
+        const reply = await api.ask(replyRequest(game.data, suspect, text, history));
+        history.push({ role: "user", content: text }, { role: "assistant", content: JSON.stringify(reply) });
+        game.history[suspect.id] = history;
+        pending.remove();
+        addLog("a", `${suspect.name}: ${reply.say}`);
+        controller.speak(reply.say);
+        if (reply.claim) (game.claimed[suspect.id] ??= []).push(String(reply.claim));
+        renderNotebook();
+        api
+            .speak(reply.say, suspect.voice)
+            .then((url) => {
+                ui.voice.src = url;
+            })
+            .catch((error) => showError(error.message));
+    } catch (error) {
+        pending.remove();
+        showError(error.message);
+    }
+}
+
+ui.ask.addEventListener("click", () => ask(ui.q.value));
+ui.q.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") ask(ui.q.value);
+});
+ui.close.addEventListener("click", closeInterview);
+
+// ---------------------------------------------------------------- notebook
+
+function renderNotebook() {
+    ui.noteList.innerHTML = "";
+    let any = false;
+    for (const suspect of game.data.suspects) {
+        for (const claim of game.claimed[suspect.id] ?? []) {
+            any = true;
+            const li = document.createElement("li");
+            li.innerHTML = `<strong>${escapeHtml(suspect.name)}:</strong> ${escapeHtml(claim)}`;
+            ui.noteList.appendChild(li);
+        }
+    }
+    ui.notes.classList.toggle("hidden", !any);
+
+    const culprit = game.data.suspects.find((s) => s.isCulprit);
+    const witness = game.data.suspects.find((s) => s.isWitness);
+    const culpritClaimed = (game.claimed[culprit.id] ?? []).some((c) => c.toLowerCase().includes(game.data.coverRoom.toLowerCase()));
+    const witnessSaw = (game.claimed[witness.id] ?? []).some((c) => c.toLowerCase().includes(culprit.name.toLowerCase().split(" ")[0]));
+    ui.contradiction.innerHTML =
+        culpritClaimed && witnessSaw
+            ? `<div class="banner warn" style="position:static;transform:none;margin-top:0.6rem">
+                 <span class="flag">Contradiction.</span> ${escapeHtml(culprit.name)} says they were in
+                 ${escapeHtml(game.data.coverRoom)}, but ${escapeHtml(witness.name)} saw them at
+                 ${escapeHtml(game.data.scene)}. One of them is lying.
+               </div>`
+            : "";
+}
+
+// ---------------------------------------------------------------- accuse
+
+ui.accuse.addEventListener("click", () => {
+    const names = game.data.suspects.map((s) => s.name).join(", ");
+    const answer = prompt(`Who is the killer?\n\n${names}`, "");
+    if (answer === null) return;
+    const id = resolveAccusation(game.data, answer);
+    if (!id) return showError(`Name one of: ${names}.`);
+    const result = gradeAccusation(game.data, id);
+    const culprit = game.data.suspects.find((s) => s.id === game.data.culpritId);
+    if (result.correct) {
+        ui.status.textContent = "case closed";
+        alert(`You caught them. ${culprit.name} killed ${game.data.victim.name}.`);
+    } else {
+        const named = game.data.suspects.find((s) => s.id === id);
+        ui.status.textContent = "wrong";
+        alert(`Wrong. ${named.name} was innocent. The killer was ${culprit.name} — seen at ${game.data.scene}.`);
+    }
+    location.search = `?seed=${(Date.now() ^ (Math.random() * 0xffffffff)) >>> 0}`;
+});
+
+// ---------------------------------------------------------------- splash + auth
+
+ui.splashConnect.addEventListener("click", () => api.connect().catch((error) => showError(error.message)));
+ui.splashStart.addEventListener("click", () => {
+    ui.splash.classList.add("hidden");
+    ui.top.classList.remove("hidden");
+    ui.crosshair.classList.remove("hidden");
+    ui.accuse.disabled = false;
+    controls.lock();
+});
+
+(async () => {
+    try {
+        await api.handleCallback();
+    } catch (error) {
+        showError(error.message);
+    }
+    ui.status.textContent = api.signedIn() ? "connected" : "";
+    ui.splashStart.disabled = !api.signedIn();
+    if (api.signedIn()) ui.splashHint.textContent = "Connected. Enter the house, then WASD + mouse.";
+})();
+
+// ---------------------------------------------------------------- loop
+
+addEventListener("resize", () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+renderer.setAnimationLoop(() => {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    controls.update(dt);
+    env.update(dt);
+    decor.update(dt);
+    for (const controller of game.suspects) controller.update(dt);
+    if (!game.open) updateTarget();
+    renderer.render(scene, camera);
+});
