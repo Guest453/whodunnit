@@ -5,7 +5,7 @@ import { generateCase, gradeAccusation, replyRequest, resolveAccusation } from "
 
 const ENTER_URL = "https://enter.pollinations.ai";
 const GEN_URL = "https://gen.pollinations.ai";
-const CLIENT_ID = "pk_5drKIx9HHnvmdcqW";
+const CLIENT_ID = "pk_e9iOImghhPxaydHB";
 const REDIRECT_URI = `${location.origin}${location.pathname}`;
 const TTS_MODEL = "elevenlabs/eleven-v3";
 const STT_MODEL = "openai/whisper-large-v3";
