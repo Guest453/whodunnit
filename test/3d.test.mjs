@@ -34,17 +34,42 @@ function fakeContext(canvas) {
     );
 }
 function fakeCanvas() {
-    const canvas = { width: 256, height: 256, style: {} };
-    canvas.getContext = () => fakeContext(canvas);
-    canvas.toDataURL = () => "data:image/png;base64,";
-    return canvas;
+    const el = {
+        width: 256,
+        height: 256,
+        style: { setProperty() {}, removeProperty() {} },
+        classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+        setAttribute() {},
+        removeAttribute() {},
+        appendChild() {},
+        append() {},
+        prepend() {},
+        removeChild() {},
+        addEventListener() {},
+        removeEventListener() {},
+        focus() {},
+        remove() {},
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        children: [],
+        childNodes: [],
+        innerHTML: "",
+        textContent: "",
+        className: "",
+    };
+    el.getContext = () => fakeContext(el);
+    el.toDataURL = () => "data:image/png;base64,";
+    return el;
 }
 const fakeDocument = {
     createElement: () => fakeCanvas(),
     createElementNS: () => fakeCanvas(),
+    createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
     addEventListener() {},
     removeEventListener() {},
-    body: { appendChild() {} },
+    getElementById: () => null,
+    head: { appendChild() {} },
+    body: { appendChild() {}, removeChild() {} },
     exitPointerLock() {},
     pointerLockElement: null,
 };
@@ -193,3 +218,93 @@ test("unlock keeps the controller alive and movement keeps working", async () =>
 
 // camera is passed positionally; keep the helper tiny
 function cammera_obj(c) { return c; }
+
+test("maps.js offers three distinct layouts the five rooms each", async () => {
+    const { MAPS, ROOMS } = await import("../src/maps.js");
+    assert.ok(Array.isArray(MAPS) && MAPS.length >= 3, "at least three maps");
+    const ids = new Set(MAPS.map((m) => m.id));
+    assert.equal(ids.size, MAPS.length, "unique map ids");
+    for (const map of MAPS) {
+        for (const name of ROOMS) {
+            assert.ok(map.rooms[name], `${map.id}.${name}`);
+            const [w, d] = map.rooms[name].size;
+            assert.ok(w >= 7 && d >= 7, `${map.id}.${name} is at least 7x7`);
+            assert.ok(Array.isArray(map.rooms[name].center) && map.rooms[name].center.length === 2, `${map.id}.${name} center`);
+        }
+        assert.ok(map.palette, `${map.id} has a palette`);
+        // rooms must not overlap
+        const names = ROOMS;
+        for (let i = 0; i < names.length; i++) {
+            for (let j = i + 1; j < names.length; j++) {
+                const a = map.rooms[names[i]];
+                const b = map.rooms[names[j]];
+                const ax1 = a.center[0] - a.size[0] / 2, ax2 = a.center[0] + a.size[0] / 2;
+                const az1 = a.center[1] - a.size[1] / 2, az2 = a.center[1] + a.size[1] / 2;
+                const bx1 = b.center[0] - b.size[0] / 2, bx2 = b.center[0] + b.size[0] / 2;
+                const bz1 = b.center[1] - b.size[1] / 2, bz2 = b.center[1] + b.size[1] / 2;
+                const overlaps = ax1 < bx2 && ax2 > bx1 && az1 < bz2 && az2 > bz1;
+                assert.ok(!overlaps, `${map.id}: ${names[i]} and ${names[j]} overlap`);
+            }
+        }
+    }
+});
+
+test("env.js builds every map with anchors and colliders", async () => {
+    const { MAPS } = await import("../src/maps.js");
+    const { ROOMS } = await import("../src/env.js");
+    for (const map of MAPS) {
+        const scene = new THREE.Scene();
+        const env = buildEnvironment(scene, THREE, map);
+        assert.ok(env.palette, `${map.id} exposes a palette`);
+        for (const name of ROOMS) {
+            assert.ok(env.rooms[name] && env.anchors[name], `${map.id}.${name} room+anchor`);
+            assert.equal(typeof env.anchors[name].facing, "number");
+        }
+        assert.ok(env.colliders.length > 0, `${map.id} colliders`);
+        assert.ok(Array.isArray(env.spawn.position), `${map.id} spawn`);
+    }
+});
+
+test("police.js walks and cuffs incrementally", async () => {
+    const { buildPolice } = await import("../src/police.js");
+    const scene = new THREE.Scene();
+    const police = buildPolice(scene, THREE, { count: 2, entry: [0, 0] });
+    assert.ok(police.group?.isObject3D, "group");
+    assert.ok(police.officers.length >= 2, "officers");
+    for (const fn of ["walkTo", "cuff", "setPosition", "update", "dispose"]) {
+        assert.equal(typeof police[fn], "function", `police.${fn}`);
+    }
+    let arrived = false;
+    for (let i = 0; i < 600 && !arrived; i++) arrived = police.walkTo([3, 3], 0.016);
+    assert.ok(arrived, "walkTo finishes");
+    const target = new THREE.Group();
+    let cuffed = false;
+    for (let i = 0; i < 600 && !cuffed; i++) cuffed = police.cuff(target, 0.016);
+    assert.ok(cuffed, "cuff finishes");
+});
+
+test("cutscene.js runs the win timeline and fires events once", async () => {
+    const { playCutscene } = await import("../src/cutscene.js");
+    const camera = new THREE.PerspectiveCamera();
+    const scene = new THREE.Scene();
+    const culprit = { group: new THREE.Group(), face() {}, setTalking() {}, update() {} };
+    const police = { walkTo: () => true, cuff: () => true, update() {}, group: new THREE.Group() };
+    const events = [];
+    const cut = playCutscene({ scene, camera, THREE, culprit, police, kind: "win", victimName: "X", sceneRoom: "foyer", onEvent: (n) => events.push(n) });
+    for (let i = 0; i < 2000 && !cut.done; i++) cut.update(0.016);
+    assert.ok(cut.done, "finishes");
+    assert.deepEqual(events, ["arrive", "cuffed", "done"], "events in order, once");
+    cut.skip();
+    assert.deepEqual(events, ["arrive", "cuffed", "done"], "skip does not refire");
+});
+
+test("ending.js shows and hides a card without touching the network", async () => {
+    const { createEnding } = await import("../src/ending.js");
+    // Minimal DOM so the overlay can be built.
+    globalThis.document.body = globalThis.document.body ?? { appendChild() {}, removeChild() {} };
+    const seen = [];
+    const ending = createEnding({ onRetry() {}, onRetrySameMap() {}, onEvent: (n) => seen.push(n) });
+    ending.show({ kind: "win", culpritName: "A", victimName: "B", scene: "the cellar", officerCount: 2 });
+    ending.hide();
+    assert.ok(seen.includes("shown"), "shown event");
+});

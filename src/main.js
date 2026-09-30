@@ -1,13 +1,18 @@
 // Whodunnit 3D — integrator. Ties the case engine, the 3D modules and the API
-// together. Each 3D module owns one file; this file owns the wiring only.
+// together, and sequences the capture cutscene + ending. Each 3D module owns one
+// file; this file owns the wiring only.
 
 import * as THREE from "three";
 import { generateCase, gradeAccusation, replyRequest, resolveAccusation } from "../case.js";
 import { api } from "./api.js";
-import { ROOMS, buildEnvironment } from "./env.js";
+import { ROOMS, MAPS } from "./maps.js";
+import { buildEnvironment } from "./env.js";
 import { buildSuspects } from "./people.js";
 import { buildDecor } from "./decor.js";
 import { createFirstPerson } from "./controls.js";
+import { buildPolice } from "./police.js";
+import { playCutscene } from "./cutscene.js";
+import { createEnding } from "./ending.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -17,10 +22,10 @@ const ui = {
     splashConnect: $("splash-connect"),
     splashStart: $("splash-start"),
     splashHint: $("splash-hint"),
+    disconnect: $("disconnect"),
     top: $("top"),
     brief: $("brief"),
     status: $("status"),
-    disconnect: $("disconnect"),
     accuse: $("accuse"),
     crosshair: $("crosshair"),
     hint: $("hint"),
@@ -57,16 +62,17 @@ const escapeHtml = (value) =>
 
 const game = {
     seed: Number(new URLSearchParams(location.search).get("seed")) || (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+    mapIndex: Number(new URLSearchParams(location.search).get("map")) || 0,
     data: null,
-    suspects: [], // controllers from people.js
+    suspects: [],
     byId: new Map(),
-    history: {}, // suspectId -> messages
-    claimed: {}, // suspectId -> [claim strings]
+    history: {},
+    claimed: {},
     target: null,
-    open: null, // suspect currently being interviewed
+    open: null,
 };
 
-// ---------------------------------------------------------------- scene
+// ---------------------------------------------------------------- renderer
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -78,23 +84,105 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200);
 const clock = new THREE.Clock();
+const root = new THREE.Group();
+scene.add(root);
 
-const env = buildEnvironment(scene, THREE);
-// The case decides which room is the crime scene, so build it before the decor.
-game.data = generateCase(game.seed);
-const crimeScene = String(game.data.scene).replace(/^the /, "");
-const decor = buildDecor(scene, THREE, env.rooms, crimeScene);
-const controls = createFirstPerson(camera, renderer.domElement, env.colliders, env.spawn, THREE);
-const anchors = ROOMS.map((name) => env.anchors[name]);
-game.suspects = buildSuspects(game.data.suspects, anchors, THREE);
-for (const controller of game.suspects) {
-    scene.add(controller.group);
-    game.byId.set(controller.id, controller);
+// ---------------------------------------------------------------- world (per case)
+
+let world = null; // { layer, env, decor, suspects, police, controls, map }
+let cine = null; // active cutscene, or null
+
+function disposeWorld() {
+    if (!world) return;
+    for (const part of [world.env, world.decor, world.police]) part?.dispose?.();
+    for (const suspect of world.suspects) suspect.dispose?.();
+    world.controls?.dispose?.();
+    root.remove(world.layer);
+    world = null;
 }
 
-ui.brief.textContent = game.data.intro;
-ui.status.textContent = api.signedIn() ? "connected" : "";
-ui.splashStart.disabled = !api.signedIn();
+function buildWorld(seed, mapIndex) {
+    disposeWorld();
+    const map = MAPS[mapIndex % MAPS.length];
+    const layer = new THREE.Group();
+    root.add(layer);
+
+    const env = buildEnvironment(layer, THREE, map);
+    game.data = generateCase(seed);
+    const crimeScene = String(game.data.scene).replace(/^the /, "");
+    const decor = buildDecor(layer, THREE, env.rooms, crimeScene);
+
+    const anchors = ROOMS.map((name) => env.anchors[name]);
+    const suspects = buildSuspects(game.data.suspects, anchors, THREE);
+    for (const controller of suspects) layer.add(controller.group);
+
+    const police = buildPolice(layer, THREE, { count: 2, entry: env.spawn.position });
+    const controls = createFirstPerson(camera, renderer.domElement, env.colliders, env.spawn, THREE);
+
+    world = { layer, env, decor, suspects, police, controls, map };
+    game.suspects = suspects;
+    game.byId = new Map(suspects.map((c) => [c.id, c]));
+    game.history = {};
+    game.claimed = {};
+    game.target = null;
+    game.open = null;
+    ui.brief.textContent = game.data.intro;
+    ui.noteList.innerHTML = "";
+    ui.notes.classList.add("hidden");
+    ui.panel.classList.add("hidden");
+}
+
+// ---------------------------------------------------------------- title camera
+
+let title = true;
+let titleAngle = Math.random() * Math.PI * 2;
+let titleBounds = null;
+let titleCenter = new THREE.Vector3();
+let titleRadius = 6;
+let parallax = { x: 0, y: 0 };
+addEventListener("mousemove", (event) => {
+    parallax.x = event.clientX / innerWidth - 0.5;
+    parallax.y = event.clientY / innerHeight - 0.5;
+});
+
+function frameTitle() {
+    const foyer = world.env.rooms.foyer ?? { center: [0, 0], size: [12, 12] };
+    titleCenter.set(foyer.center[0], 1.35, foyer.center[1]);
+    titleRadius = Math.max(2.4, Math.min(foyer.size[0], foyer.size[1]) / 2 - 1.6);
+    titleBounds = {
+        minX: foyer.center[0] - foyer.size[0] / 2 + 0.9,
+        maxX: foyer.center[0] + foyer.size[0] / 2 - 0.9,
+        minZ: foyer.center[1] - foyer.size[1] / 2 + 0.9,
+        maxZ: foyer.center[1] + foyer.size[1] / 2 - 0.9,
+    };
+}
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function updateTitleCamera(dt) {
+    titleAngle += dt * 0.055;
+    const drift = titleRadius * 0.12;
+    const px = clamp(titleCenter.x + Math.sin(titleAngle) * titleRadius + parallax.x * drift, titleBounds.minX, titleBounds.maxX);
+    const pz = clamp(titleCenter.z + Math.cos(titleAngle) * titleRadius + parallax.y * drift * 0.5, titleBounds.minZ, titleBounds.maxZ);
+    camera.position.set(px, 1.8 - parallax.y * 0.35, pz);
+    camera.lookAt(titleCenter.x, 1.3, titleCenter.z);
+}
+
+function enterHouse() {
+    if (!api.signedIn()) {
+        showError("Connect Pollen first — the suspects answer with your own Pollen.");
+        return;
+    }
+    title = false;
+    cine = null;
+    ui.splash.classList.add("leaving");
+    setTimeout(() => {
+        ui.splash.classList.add("hidden");
+        ui.top.classList.remove("hidden");
+        ui.crosshair.classList.remove("hidden");
+        ui.accuse.disabled = false;
+        world.controls.lock();
+    }, 700);
+}
 
 // ---------------------------------------------------------------- interaction
 
@@ -113,44 +201,39 @@ function pickSuspect() {
 }
 
 function updateTarget() {
-    if (game.open) return;
+    if (game.open || cine) return;
     game.target = pickSuspect();
     ui.hint.classList.toggle("hidden", !game.target);
     ui.crosshair.classList.toggle("hot", Boolean(game.target));
 }
 
 addEventListener("keydown", (event) => {
-    if (event.code === "KeyE" && game.target && !game.open) openInterview(game.target);
+    if (event.code === "KeyE" && game.target && !game.open && !cine) openInterview(game.target);
     if (event.code === "Escape" && game.open) closeInterview();
 });
 
 renderer.domElement.addEventListener("click", () => {
-    if (!api.signedIn()) return;
-    if (!controls.isLocked()) controls.lock();
+    if (!api.signedIn() || title || cine) return;
+    if (!world.controls.isLocked()) world.controls.lock();
 });
 
 // ---------------------------------------------------------------- voice player
 
 const clip = new Audio();
 clip.preload = "auto";
-let speaking = null; // the suspect currently talking
+let speaking = null;
 
 const fmtTime = (seconds) => {
     if (!Number.isFinite(seconds)) return "0:00";
-    const m = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    return `${m}:${String(sec).padStart(2, "0")}`;
+    return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 };
-
 function setPlaying(on) {
     ui.voice.classList.toggle("playing", on);
     ui.voiceToggle.textContent = on ? "Pause" : "Play";
     if (speaking) speaking.setTalking(on);
 }
-
 clip.addEventListener("timeupdate", () => {
-    const pct = clip.duration ? (clip.currentTime / clip.duration) * 100 : 0;
-    ui.voiceFill.style.width = `${pct}%`;
+    ui.voiceFill.style.width = `${clip.duration ? (clip.currentTime / clip.duration) * 100 : 0}%`;
     ui.voiceTime.textContent = fmtTime(clip.currentTime);
 });
 clip.addEventListener("play", () => setPlaying(true));
@@ -160,19 +243,13 @@ clip.addEventListener("ended", () => {
     ui.voiceFill.style.width = "0%";
     ui.voiceTime.textContent = "0:00";
 });
-
-/** Load a clip and play it; the player UI is the only control surface. */
 function playVoice(url, suspectController) {
     speaking = suspectController;
     ui.voice.classList.remove("hidden");
     clip.src = url;
     clip.currentTime = 0;
-    clip.play().catch(() => {
-        // Autoplay blocked (quick subsequent lines). The Play button is right there.
-        setPlaying(false);
-    });
+    clip.play().catch(() => setPlaying(false));
 }
-
 ui.voiceToggle.addEventListener("click", () => {
     if (clip.paused) clip.play().catch(() => {});
     else clip.pause();
@@ -202,7 +279,7 @@ function openInterview(controller) {
         }
     }
     ui.panel.classList.remove("hidden");
-    controls.unlock?.(); // free the cursor for typing; keep controls alive
+    world.controls.unlock?.();
     ui.q.focus();
 }
 
@@ -210,7 +287,7 @@ function closeInterview() {
     game.open = null;
     ui.panel.classList.add("hidden");
     clip.pause();
-    controls.lock(); // back to walking
+    world.controls.lock();
 }
 
 function addLog(kind, text) {
@@ -237,14 +314,12 @@ async function ask(text) {
         const reply = await api.ask(replyRequest(game.data, suspect, text, history));
         history.push({ role: "user", content: text }, { role: "assistant", content: JSON.stringify(reply) });
         game.history[suspect.id] = history;
-        // Fetch the voice BEFORE showing the line, so the text and the speech
-        // begin at the same moment instead of the words landing seconds early.
         pending.textContent = `${suspect.name} is finding their words…`;
         let voiceUrl = null;
         try {
             voiceUrl = await api.speak(reply.say, suspect.voice);
         } catch (error) {
-            showError(error.message); // text still appears below
+            showError(error.message);
         }
         pending.remove();
         addLog("a", `${suspect.name}: ${reply.say}`);
@@ -293,74 +368,71 @@ function renderNotebook() {
             : "";
 }
 
-// ---------------------------------------------------------------- accuse
+// ---------------------------------------------------------------- cutscene + ending
+
+const ending = createEnding({
+    onRetry: () => restart(true),
+    onRetrySameMap: () => restart(false),
+    onEvent: () => {},
+});
+
+function restart(newMap) {
+    ending.hide();
+    title = true;
+    cine = null;
+    clip.pause();
+    const nextMap = newMap ? game.mapIndex + 1 : game.mapIndex;
+    const nextSeed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
+    location.search = `?seed=${nextSeed}&map=${nextMap}`;
+}
+
+function startCutscene(kind, culpritController) {
+    game.open = null;
+    ui.panel.classList.add("hidden");
+    ui.hint.classList.add("hidden");
+    ui.crosshair.classList.add("hidden");
+    ui.accuse.disabled = true;
+    clip.pause();
+    world.controls.unlock?.();
+
+    const culprit = game.data.suspects.find((s) => s.id === game.data.culpritId);
+    cine = playCutscene({
+        scene,
+        camera,
+        THREE,
+        culprit: culpritController,
+        police: world.police,
+        kind,
+        victimName: game.data.victim.name,
+        sceneRoom: String(game.data.scene).replace(/^the /, ""),
+        onEvent: (name) => {
+            if (name !== "done") return;
+            cine = null;
+            ending.show({
+                kind,
+                culpritName: culprit.name,
+                victimName: game.data.victim.name,
+                scene: game.data.scene,
+                officerCount: world.police.officers?.length ?? 2,
+            });
+        },
+    });
+}
 
 ui.accuse.addEventListener("click", () => {
+    if (cine) return;
     const names = game.data.suspects.map((s) => s.name).join(", ");
     const answer = prompt(`Who is the killer?\n\n${names}`, "");
     if (answer === null) return;
     const id = resolveAccusation(game.data, answer);
     if (!id) return showError(`Name one of: ${names}.`);
     const result = gradeAccusation(game.data, id);
-    const culprit = game.data.suspects.find((s) => s.id === game.data.culpritId);
-    if (result.correct) {
-        ui.status.textContent = "case closed";
-        alert(`You caught them. ${culprit.name} killed ${game.data.victim.name}.`);
-    } else {
-        const named = game.data.suspects.find((s) => s.id === id);
-        ui.status.textContent = "wrong";
-        alert(`Wrong. ${named.name} was innocent. The killer was ${culprit.name} — seen at ${game.data.scene}.`);
-    }
-    location.search = `?seed=${(Date.now() ^ (Math.random() * 0xffffffff)) >>> 0}`;
+    const controller = game.byId.get(game.data.culpritId);
+    ui.status.textContent = result.correct ? "case closed" : "wrong";
+    startCutscene(result.correct ? "win" : "lose", controller);
 });
 
-// ---------------------------------------------------------------- splash + auth
-
-// ---- title screen: the menu sits on the left, the live house on the right ----
-// A slow orbit with a little mouse parallax. It runs until the player enters.
-let title = true;
-let titleAngle = Math.random() * Math.PI * 2;
-const foyer = env.rooms.foyer ?? { center: [0, 0], size: [12, 12] };
-const titleCenter = new THREE.Vector3(foyer.center[0], 1.35, foyer.center[1]);
-// Keep the orbit inside the room: radius from the smaller span, minus a margin.
-const titleRadius = Math.max(2.4, Math.min(foyer.size[0], foyer.size[1]) / 2 - 1.6);
-const titleBounds = {
-    minX: foyer.center[0] - foyer.size[0] / 2 + 0.9,
-    maxX: foyer.center[0] + foyer.size[0] / 2 - 0.9,
-    minZ: foyer.center[1] - foyer.size[1] / 2 + 0.9,
-    maxZ: foyer.center[1] + foyer.size[1] / 2 - 0.9,
-};
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-let parallax = { x: 0, y: 0 };
-addEventListener("mousemove", (event) => {
-    parallax.x = event.clientX / innerWidth - 0.5;
-    parallax.y = event.clientY / innerHeight - 0.5;
-});
-
-function updateTitleCamera(dt) {
-    titleAngle += dt * 0.055;
-    const drift = titleRadius * 0.12; // small parallax, never enough to reach a wall
-    const px = clamp(titleCenter.x + Math.sin(titleAngle) * titleRadius + parallax.x * drift, titleBounds.minX, titleBounds.maxX);
-    const pz = clamp(titleCenter.z + Math.cos(titleAngle) * titleRadius + parallax.y * drift * 0.5, titleBounds.minZ, titleBounds.maxZ);
-    camera.position.set(px, 1.8 - parallax.y * 0.35, pz);
-    camera.lookAt(titleCenter.x, 1.3, titleCenter.z);
-}
-
-function enterHouse() {
-    if (!api.signedIn()) {
-        showError("Connect Pollen first — the suspects answer with your own Pollen.");
-        return;
-    }
-    title = false;
-    ui.splash.classList.add("leaving"); // CSS fades the menu out over the 3D
-    setTimeout(() => {
-        ui.splash.classList.add("hidden");
-        ui.top.classList.remove("hidden");
-        ui.crosshair.classList.remove("hidden");
-        ui.accuse.disabled = false;
-        controls.lock();
-    }, 700);
-}
+// ---------------------------------------------------------------- auth + boot
 
 ui.splashConnect.addEventListener("click", () => api.connect().catch((error) => showError(error.message)));
 ui.splashStart.addEventListener("click", enterHouse);
@@ -378,7 +450,6 @@ ui.disconnect?.addEventListener("click", () => {
         showError(error.message);
     }
     ui.status.textContent = api.signedIn() ? "connected" : "";
-    ui.splashStart.disabled = false;
     ui.disconnect?.classList.toggle("hidden", !api.signedIn());
     ui.splashHint.textContent = api.signedIn()
         ? "Connected. Enter the house when you are ready."
@@ -393,13 +464,23 @@ addEventListener("resize", () => {
     renderer.setSize(innerWidth, innerHeight);
 });
 
+// First world (also frames the title camera).
+buildWorld(game.seed, game.mapIndex);
+frameTitle();
+
 renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.05);
-    if (title) updateTitleCamera(dt);
-    else controls.update(dt);
-    env.update(dt);
-    decor.update(dt);
-    for (const controller of game.suspects) controller.update(dt);
-    if (!game.open) updateTarget();
+    if (cine) {
+        cine.update(dt);
+    } else if (title) {
+        updateTitleCamera(dt);
+    } else {
+        world.controls.update(dt);
+    }
+    world.env.update(dt);
+    world.decor.update(dt);
+    world.police.update(dt);
+    for (const controller of world.suspects) controller.update(dt);
+    if (!game.open && !cine && !title) updateTarget();
     renderer.render(scene, camera);
 });

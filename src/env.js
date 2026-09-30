@@ -1,27 +1,21 @@
-// env.js — the mansion shell for the Whodunnit 3D scene.
+// env.js — the map-driven mansion shell for the Whodunnit 3D scene.
 //
 // Everything here is procedural: box / plane / cylinder primitives plus textures
 // painted onto <canvas> elements. No external assets, no network, no timers.
 // Grid: XZ plane, Y is up, the floor sits at y = 0.
 //
-// Footprint is x ∈ [-14, 14], z ∈ [-14, 14] (wall thickness 0.3):
-//
-//   z = -14  +-----------+--------+-----------+
-//            |  library  | conser |   study   |
-//            |           | vatory |           |
-//   z =  -2  +-----+-----+---+----+-----+-----+
-//            |      cellar       |    foyer    |
-//            |                   |             |
-//   z =  14  +-------------------+-------------+
-//          x = -14            x = -4        x = 14
-//
-// Doorways connect foyer↔conservatory, foyer↔study, foyer↔cellar,
-// conservatory↔library and conservatory↔study, so every room is reachable.
+// The layout comes from maps.js. Each room is an axis-aligned rectangle; env.js
+// builds the boundary of their union as walls and cuts a doorway wherever two
+// rooms share an edge, so the whole house is walkable. Palette, fog and lighting
+// all come from `map.palette`.
 
-export const ROOMS = ["foyer", "library", "study", "conservatory", "cellar"];
+import { MAPS, ROOMS } from "./maps.js";
+export { ROOMS };
 
 // ---------------------------------------------------------------------------
-// canvas texture helpers (module scope so they are not re-created per call)
+// canvas texture helpers (module scope so they are not re-created per call).
+// The surface textures are greyscale: the per-map palette colour multiplies
+// them, so one set of textures serves all three houses.
 // ---------------------------------------------------------------------------
 
 function cvs(w, h) {
@@ -41,21 +35,22 @@ function finish(THREE, canvas, rx, ry) {
     return t;
 }
 
-/** Warm oak floorboards. */
-function texFloorWood(THREE) {
+/** Greyscale floorboards. */
+function texPlanks(THREE) {
     const c = cvs(512, 512);
     const g = c.getContext("2d");
-    g.fillStyle = "#4a3220";
+    g.fillStyle = "#b9b3ab";
     g.fillRect(0, 0, 512, 512);
     const ph = 64;
     for (let row = 0; row < 8; row++) {
         const y = row * ph;
         const off = (row % 2) * 128;
         for (let x = -256 + off; x < 512; x += 256) {
-            const s = 0.88 + Math.random() * 0.24;
-            g.fillStyle = `rgb(${Math.round(96 * s)},${Math.round(66 * s)},${Math.round(42 * s)})`;
+            const s = 0.86 + Math.random() * 0.26;
+            const v = Math.round(192 * s);
+            g.fillStyle = `rgb(${v},${v},${v})`;
             g.fillRect(x + 2, y + 2, 252, ph - 4);
-            g.strokeStyle = "rgba(38,24,14,0.28)";
+            g.strokeStyle = "rgba(66,60,54,0.30)";
             g.lineWidth = 1;
             for (let i = 0; i < 5; i++) {
                 const gy = y + 8 + Math.random() * (ph - 16);
@@ -69,36 +64,37 @@ function texFloorWood(THREE) {
     return finish(THREE, c, 3, 3);
 }
 
-/** Cool cellar flagstones. */
-function texStone(THREE) {
+/** Greyscale flagstones. */
+function texFlag(THREE) {
     const c = cvs(256, 256);
     const g = c.getContext("2d");
-    g.fillStyle = "#3c3a36";
+    g.fillStyle = "#8f8b84";
     g.fillRect(0, 0, 256, 256);
     for (let y = 0; y < 256; y += 32) {
         const off = (Math.floor(y / 32) % 2) * 32;
         for (let x = -64; x < 256; x += 64) {
             const s = 0.8 + Math.random() * 0.4;
-            g.fillStyle = `rgb(${Math.round(104 * s)},${Math.round(98 * s)},${Math.round(88 * s)})`;
+            const v = Math.round(180 * s);
+            g.fillStyle = `rgb(${v},${v},${v})`;
             g.fillRect(x + off + 1, y + 1, 62, 30);
         }
     }
     return finish(THREE, c, 4, 4);
 }
 
-/** Muted marble checker for the entrance hall. */
-function texTile(THREE) {
+/** Greyscale marble checker. */
+function texChecker(THREE) {
     const c = cvs(256, 256);
     const g = c.getContext("2d");
     const n = 4;
     const s = 256 / n;
     for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
-            g.fillStyle = (x + y) % 2 === 0 ? "#2f2b26" : "#c3b79e";
+            g.fillStyle = (x + y) % 2 === 0 ? "#6f6f6f" : "#d8d8d8";
             g.fillRect(x * s, y * s, s, s);
         }
     }
-    g.strokeStyle = "rgba(0,0,0,0.22)";
+    g.strokeStyle = "rgba(30,30,30,0.25)";
     for (let i = 0; i <= n; i++) {
         g.beginPath();
         g.moveTo(i * s, 0);
@@ -112,17 +108,17 @@ function texTile(THREE) {
     return finish(THREE, c, 6, 5);
 }
 
-/** Period wallpaper: soft ochre with faint stripes and damask dots. */
+/** Greyscale period wallpaper: stripes plus faint damask dots. */
 function texWallpaper(THREE) {
     const c = cvs(256, 256);
     const g = c.getContext("2d");
-    g.fillStyle = "#655439";
+    g.fillStyle = "#c9c3b8";
     g.fillRect(0, 0, 256, 256);
     for (let x = 0; x < 256; x += 16) {
-        g.fillStyle = (x / 16) % 2 ? "rgba(255,238,205,0.06)" : "rgba(0,0,0,0.06)";
+        g.fillStyle = (x / 16) % 2 ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
         g.fillRect(x, 0, 8, 256);
     }
-    g.fillStyle = "rgba(214,184,132,0.12)";
+    g.fillStyle = "rgba(255,255,255,0.16)";
     for (let y = 16; y < 256; y += 48) {
         for (let x = 16; x < 256; x += 48) {
             g.beginPath();
@@ -133,27 +129,27 @@ function texWallpaper(THREE) {
     return finish(THREE, c, 4, 2);
 }
 
-/** Warm plaster for ceilings. */
+/** Greyscale plaster for ceilings. */
 function texPlaster(THREE) {
     const c = cvs(128, 128);
     const g = c.getContext("2d");
-    g.fillStyle = "#b7ac93";
+    g.fillStyle = "#c4c4c4";
     g.fillRect(0, 0, 128, 128);
     for (let i = 0; i < 900; i++) {
         const v = Math.random() < 0.5 ? 255 : 0;
-        g.fillStyle = `rgba(${v},${v},${v},0.03)`;
+        g.fillStyle = `rgba(${v},${v},${v},0.04)`;
         g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
     }
     return finish(THREE, c, 2, 2);
 }
 
-/** Dark furniture timber. */
-function texWood(THREE) {
+/** Greyscale timber grain for furniture and trim. */
+function texGrain(THREE) {
     const c = cvs(256, 256);
     const g = c.getContext("2d");
-    g.fillStyle = "#3f2a18";
+    g.fillStyle = "#b6ac9e";
     g.fillRect(0, 0, 256, 256);
-    g.strokeStyle = "rgba(26,15,8,0.5)";
+    g.strokeStyle = "rgba(60,44,28,0.45)";
     g.lineWidth = 1;
     for (let i = 0; i < 70; i++) {
         const y = Math.random() * 256;
@@ -180,7 +176,7 @@ function texDot(THREE) {
     return t;
 }
 
-/** Night sky for the dome above the open-roofed conservatory. */
+/** Night sky for the dome outside the windows. */
 function texSky(THREE) {
     const c = cvs(1024, 512);
     const g = c.getContext("2d");
@@ -216,18 +212,27 @@ function texSky(THREE) {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the mansion into `scene` and return the frozen interface described in
- * contract.md.
+ * Build a house into `scene` and return the frozen interface described in
+ * cutscene-contract.md. `map` is a layout from maps.js; it defaults to the first
+ * map so existing callers keep working.
  * @param {import("three").Scene} scene
  * @param {typeof import("three")} THREE
+ * @param {typeof MAPS[number]} [map]
  */
-export function buildEnvironment(scene, THREE) {
+export function buildEnvironment(scene, THREE, map = MAPS[0]) {
+    const layout = map || MAPS[0];
+    const P = Object.assign(
+        { floor: 0x3a2c22, wall: 0x241b15, ceiling: 0x140f0b, accent: 0x6b4a2f, fog: 0x0b0907, light: 0xffd9a0, lamp: 0xffb060 },
+        layout.palette || {},
+    );
+
     // ---- tuning constants -------------------------------------------------
     const T = 0.3;          // wall thickness
     const WALL_H = 3.6;     // wall height
     const DOOR_W = 2.4;     // doorway width (player is ~0.35 radius)
     const DOOR_H = 2.35;    // doorway height
     const FLOOR_Y = 0.01;   // floors sit just above y = 0
+    const EPS = 0.001;
 
     const group = new THREE.Group();
     group.name = "environment";
@@ -252,15 +257,36 @@ export function buildEnvironment(scene, THREE) {
         }
     }
 
-    // ---- materials --------------------------------------------------------
-    const matFloorWood = new THREE.MeshStandardMaterial({ map: texFloorWood(THREE), roughness: 0.85 });
-    const matFloorStone = new THREE.MeshStandardMaterial({ map: texStone(THREE), roughness: 0.95 });
-    const matFloorTile = new THREE.MeshStandardMaterial({ map: texTile(THREE), roughness: 0.6, metalness: 0.05 });
-    const matWall = new THREE.MeshStandardMaterial({ map: texWallpaper(THREE), roughness: 0.95 });
-    const matStone = new THREE.MeshStandardMaterial({ map: texStone(THREE), roughness: 0.98, color: 0xbfb6a8 });
-    const matPlaster = new THREE.MeshStandardMaterial({ map: texPlaster(THREE), roughness: 1.0 });
-    const matWood = new THREE.MeshStandardMaterial({ map: texWood(THREE), roughness: 0.7 });
-    const matWoodLight = new THREE.MeshStandardMaterial({ map: texWood(THREE), color: 0xd8b483, roughness: 0.7 });
+    // ---- room rectangles --------------------------------------------------
+    const rooms = {};
+    const rects = {};
+    for (const name of ROOMS) {
+        const src = layout.rooms[name];
+        const [cx, cz] = src.center;
+        const [w, d] = src.size;
+        rooms[name] = { center: [cx, cz], size: [w, d] };
+        rects[name] = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 };
+    }
+
+    // Overall bounds (used for fog, the key light, the sky dome and the dust).
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const name of ROOMS) {
+        const r = rects[name];
+        minX = Math.min(minX, r.x0); maxX = Math.max(maxX, r.x1);
+        minZ = Math.min(minZ, r.z0); maxZ = Math.max(maxZ, r.z1);
+    }
+    const centreX = (minX + maxX) / 2;
+    const centreZ = (minZ + maxZ) / 2;
+    const extent = Math.max(maxX - minX, maxZ - minZ);
+
+    // ---- materials (palette-coloured, greyscale-textured) -----------------
+    const matFloorWood = new THREE.MeshStandardMaterial({ map: texPlanks(THREE), color: P.floor, roughness: 0.85 });
+    const matFloorStone = new THREE.MeshStandardMaterial({ map: texFlag(THREE), color: P.floor, roughness: 0.95 });
+    const matFloorTile = new THREE.MeshStandardMaterial({ map: texChecker(THREE), color: P.floor, roughness: 0.6, metalness: 0.05 });
+    const matWall = new THREE.MeshStandardMaterial({ map: texWallpaper(THREE), color: P.wall, roughness: 0.95 });
+    const matStone = new THREE.MeshStandardMaterial({ map: texFlag(THREE), color: P.wall, roughness: 0.98 });
+    const matCeiling = new THREE.MeshStandardMaterial({ map: texPlaster(THREE), color: P.ceiling, roughness: 1.0 });
+    const matWood = new THREE.MeshStandardMaterial({ map: texGrain(THREE), color: P.accent, roughness: 0.7 });
     const matBrass = new THREE.MeshStandardMaterial({ color: 0xb08d4a, metalness: 0.85, roughness: 0.35 });
     const matWax = new THREE.MeshStandardMaterial({ color: 0xf0e6c8, roughness: 0.8 });
     const matShade = new THREE.MeshStandardMaterial({
@@ -272,9 +298,6 @@ export function buildEnvironment(scene, THREE) {
     });
     const matLeaf = new THREE.MeshStandardMaterial({ color: 0x3f6b3a, roughness: 0.9 });
     const matSoil = new THREE.MeshStandardMaterial({ color: 0x2e2419, roughness: 1.0 });
-    const matGlass = new THREE.MeshStandardMaterial({
-        color: 0x9fc4d8, transparent: true, opacity: 0.18, roughness: 0.1, metalness: 0.0,
-    });
     const matNightPane = new THREE.MeshStandardMaterial({
         color: 0x0b1430, emissive: 0x2a3f6e, emissiveIntensity: 0.7, roughness: 0.4,
     });
@@ -305,106 +328,168 @@ export function buildEnvironment(scene, THREE) {
         return m;
     }
 
-    // Split an axis range [a,b] into the spans left between doorway gaps.
-    function carve(a, b, doors) {
-        const cuts = doors.map(([c, w]) => [c - w / 2, c + w / 2]).sort((p, q) => p[0] - q[0]);
-        const spans = [];
-        let cur = a;
-        for (const [s, e] of cuts) {
-            const cs = Math.max(s, a);
-            const ce = Math.min(e, b);
-            if (ce <= cur) continue;
-            if (cs > cur) spans.push([cur, cs]);
-            cur = Math.max(cur, ce);
-        }
-        if (cur < b) spans.push([cur, b]);
-        return spans;
+    // ---- floors and ceilings (one quad per room; they abut exactly) --------
+    const floorFor = (name) => (name === "cellar" ? matFloorStone : name === "foyer" ? matFloorTile : matFloorWood);
+    for (const name of ROOMS) {
+        const r = rects[name];
+        const w = r.x1 - r.x0;
+        const d = r.z1 - r.z0;
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        plane(cx, cz, w, d, FLOOR_Y, floorFor(name));
+        plane(cx, cz, w, d, WALL_H, matCeiling, false);
     }
 
-    // A wall running along X at fixed z, with doorways and lintels.
-    function wallX(z, x0, x1, doors, mat, h = WALL_H) {
-        for (const [a, b] of carve(x0, x1, doors)) {
-            if (b - a > 0.02) solid((a + b) / 2, z, b - a, T, h, h / 2, mat);
+    // ---- walls: the boundary of the union of the room rectangles ----------
+    // For every unique edge line, split it at all room corners and classify
+    // each span: one covering room = an exposed wall; two = a shared wall that
+    // gets a doorway. This yields doorways between exactly the adjacent rooms.
+    const round = (v) => Math.round(v * 1000) / 1000;
+    function addEdge(table, key, span) {
+        const k = round(key);
+        if (!table.has(k)) table.set(k, []);
+        table.get(k).push(span);
+    }
+    const horiz = new Map(); // z -> [x0, x1]
+    const vert = new Map();  // x -> [z0, z1]
+    for (const name of ROOMS) {
+        const r = rects[name];
+        addEdge(horiz, r.z0, [r.x0, r.x1]);
+        addEdge(horiz, r.z1, [r.x0, r.x1]);
+        addEdge(vert, r.x0, [r.z0, r.z1]);
+        addEdge(vert, r.x1, [r.z0, r.z1]);
+    }
+
+    function uniqueSorted(values) {
+        const sorted = [...values].sort((a, b) => a - b);
+        const out = [];
+        for (const v of sorted) {
+            if (!out.length || Math.abs(out[out.length - 1] - v) > EPS) out.push(v);
         }
-        for (const [c, w] of doors) {
-            solid(c, z, w, T, WALL_H - DOOR_H, DOOR_H + (WALL_H - DOOR_H) / 2, mat, false);
+        return out;
+    }
+
+    const wallSegs = [];
+    const sharedSegs = [];
+    function scan(table, axis) {
+        for (const [at, spans] of table) {
+            const cuts = uniqueSorted(spans.flat());
+            const seen = new Set();
+            for (const [lo, hi] of spans) {
+                for (let i = 0; i < cuts.length - 1; i++) {
+                    const a = cuts[i];
+                    const b = cuts[i + 1];
+                    if (a < lo - EPS || b > hi + EPS) continue;
+                    const key = `${a}:${b}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    const mid = (a + b) / 2;
+                    const covering = ROOMS.filter((n) => {
+                        const r = rects[n];
+                        const onEdge = axis === "x"
+                            ? (Math.abs(r.z0 - at) < EPS || Math.abs(r.z1 - at) < EPS)
+                            : (Math.abs(r.x0 - at) < EPS || Math.abs(r.x1 - at) < EPS);
+                        const within = axis === "x" ? (r.x0 <= mid + EPS && r.x1 >= mid - EPS) : (r.z0 <= mid + EPS && r.z1 >= mid - EPS);
+                        return onEdge && within;
+                    });
+                    if (!covering.length) continue;
+                    wallSegs.push({ axis, at, a, b });
+                    if (covering.length >= 2) sharedSegs.push({ axis, at, a, b, pair: covering.slice(0, 2) });
+                }
+            }
+        }
+    }
+    scan(horiz, "x");
+    scan(vert, "z");
+
+    // Merge contiguous shared spans per room pair and drop a doorway in each.
+    const doors = [];
+    const byPair = new Map();
+    for (const s of sharedSegs) {
+        const key = `${s.axis}|${s.at}|${[...s.pair].sort().join("+")}`;
+        if (!byPair.has(key)) byPair.set(key, []);
+        byPair.get(key).push(s);
+    }
+    for (const [key, segs] of byPair) {
+        segs.sort((p, q) => p.a - q.a);
+        const runs = [];
+        for (const s of segs) {
+            const last = runs[runs.length - 1];
+            if (last && Math.abs(last.b - s.a) < EPS) last.b = s.b;
+            else runs.push({ a: s.a, b: s.b });
+        }
+        const [axis, at] = key.split("|");
+        for (const run of runs) {
+            const len = run.b - run.a;
+            if (len < 1.6) continue; // too narrow to walk through
+            doors.push({ axis, at: Number(at), center: (run.a + run.b) / 2, width: Math.min(DOOR_W, len - 0.6) });
         }
     }
 
-    // A wall running along Z at fixed x, with doorways and lintels.
-    function wallZ(x, z0, z1, doors, mat, h = WALL_H) {
-        for (const [a, b] of carve(z0, z1, doors)) {
-            if (b - a > 0.02) solid(x, (a + b) / 2, T, b - a, h, h / 2, mat);
+    // Emit wall pieces, punching the doorways out of them.
+    function piecesOf(seg) {
+        let pieces = [[seg.a, seg.b]];
+        for (const d of doors) {
+            if (d.axis !== seg.axis || Math.abs(d.at - seg.at) > EPS) continue;
+            const da = d.center - d.width / 2;
+            const db = d.center + d.width / 2;
+            const next = [];
+            for (const [a, b] of pieces) {
+                if (db <= a + EPS || da >= b - EPS) { next.push([a, b]); continue; }
+                if (da > a + EPS) next.push([a, da]);
+                if (db < b - EPS) next.push([db, b]);
+            }
+            pieces = next;
         }
-        for (const [c, w] of doors) {
-            solid(x, c, T, w, WALL_H - DOOR_H, DOOR_H + (WALL_H - DOOR_H) / 2, mat, false);
+        return pieces;
+    }
+    for (const seg of wallSegs) {
+        for (const [a, b] of piecesOf(seg)) {
+            if (b - a < 0.02) continue;
+            if (seg.axis === "x") solid((a + b) / 2, seg.at, b - a, T, WALL_H, WALL_H / 2, matWall);
+            else solid(seg.at, (a + b) / 2, T, b - a, WALL_H, WALL_H / 2, matWall);
         }
     }
+    // Lintels above each doorway.
+    for (const d of doors) {
+        const h = WALL_H - DOOR_H;
+        if (d.axis === "x") solid(d.center, d.at, d.width, T, h, DOOR_H + h / 2, matWall, false);
+        else solid(d.at, d.center, T, d.width, h, DOOR_H + h / 2, matWall, false);
+    }
 
-    // ---- floors -----------------------------------------------------------
-    plane(5, 6, 18, 16, FLOOR_Y, matFloorTile);        // foyer (checker)
-    plane(-9, -8, 10, 12, FLOOR_Y, matFloorWood);      // library
-    plane(9, -8, 10, 12, FLOOR_Y, matFloorWood);       // study
-    plane(0, -8, 8, 12, FLOOR_Y, matFloorTile);        // conservatory
-    plane(-9, 6, 10, 16, FLOOR_Y, matFloorStone);      // cellar
-
-    // ---- ceilings (conservatory stays open to the sky) --------------------
-    plane(5, 6, 18, 16, WALL_H, matPlaster, false);
-    plane(-9, -8, 10, 12, 3.2, matPlaster, false);
-    plane(9, -8, 10, 12, 3.2, matPlaster, false);
-    plane(-9, 6, 10, 16, 2.6, matPlaster, false);      // low cellar ceiling
-
-    // ---- outer walls ------------------------------------------------------
-    wallX(14, -14, -4, [], matStone);                  // cellar south
-    wallX(14, -4, 14, [], matWall);                    // foyer south
-    wallZ(-14, -14, -2, [], matWall);                  // library west
-    wallZ(-14, -2, 14, [], matStone);                  // cellar west
-    wallZ(14, -14, -2, [], matWall);                   // study east
-    wallZ(14, -2, 14, [], matWall);                    // foyer east
-    wallX(-14, -14, -4, [], matWall);                  // library north
-    wallX(-14, -4, 4, [], matGlass);                   // conservatory north (glass)
-    wallX(-14, 4, 14, [], matWall);                    // study north
-
-    // ---- interior walls + doorways ---------------------------------------
-    wallX(-2, -14, 14, [[-9, DOOR_W], [0, DOOR_W], [9, DOOR_W]], matWall);
-    wallZ(-4, -14, -2, [[-8, DOOR_W]], matWall);       // library | conservatory
-    wallZ(4, -14, -2, [[-8, DOOR_W]], matWall);        // conservatory | study
-    wallZ(-4, -2, 14, [[6, DOOR_W]], matStone);        // cellar | foyer
-
-    // ---- windows (decorative; the wall already collides) ------------------
-    function windowOnWall(x, z, axis, dir) {
+    // ---- windows on the outer extreme walls -------------------------------
+    function addWindow(axis, at, centre, dir) {
         const w = 1.8;
         const h = 1.9;
-        const y = 1.0 + h / 2;
+        const y = 1.05 + h / 2;
         if (axis === "x") {
-            solid(x, z, w, 0.1, h, y, matWood, false);
-            solid(x, z + dir * 0.04, w - 0.24, 0.06, h - 0.24, y, matNightPane, false, false);
-            solid(x, z + dir * 0.05, 0.09, 0.06, h - 0.24, y, matWood, false);
-            solid(x, z + dir * 0.05, w - 0.24, 0.06, 0.09, y, matWood, false);
+            solid(centre, at, w, 0.12, h, y, matWood, false);
+            solid(centre, at + dir * 0.04, w - 0.24, 0.06, h - 0.24, y, matNightPane, false, false);
+            solid(centre, at + dir * 0.05, 0.09, 0.06, h - 0.24, y, matWood, false, false);
+            solid(centre, at + dir * 0.05, w - 0.24, 0.06, 0.09, y, matWood, false, false);
         } else {
-            solid(x, z, 0.1, w, h, y, matWood, false);
-            solid(x + dir * 0.04, z, 0.06, w - 0.24, h - 0.24, y, matNightPane, false, false);
-            solid(x + dir * 0.05, z, 0.06, 0.09, h - 0.24, y, matWood, false);
-            solid(x + dir * 0.05, z, 0.06, w - 0.24, 0.09, y, matWood, false);
+            solid(at, centre, 0.12, w, h, y, matWood, false);
+            solid(at + dir * 0.04, centre, 0.06, w - 0.24, h - 0.24, y, matNightPane, false, false);
+            solid(at + dir * 0.05, centre, 0.06, 0.09, h - 0.24, y, matWood, false, false);
+            solid(at + dir * 0.05, centre, 0.06, w - 0.24, 0.09, y, matWood, false, false);
         }
     }
-    windowOnWall(-9, 14, "x", -1);   // cellar south
-    windowOnWall(2, 14, "x", -1);    // foyer south
-    windowOnWall(9, 14, "x", -1);
-    windowOnWall(-14, -8, "z", 1);   // library west
-    windowOnWall(-14, 2, "z", 1);    // cellar west
-    windowOnWall(-14, 9, "z", 1);
-    windowOnWall(14, -8, "z", -1);   // study east
-    windowOnWall(14, 6, "z", -1);    // foyer east
-    windowOnWall(-9, -14, "x", 1);   // library north
-    windowOnWall(9, -14, "x", 1);    // study north
+    for (const seg of wallSegs) {
+        if (seg.b - seg.a < 3.2) continue;
+        const mid = (seg.a + seg.b) / 2;
+        if (seg.axis === "x") {
+            if (Math.abs(seg.at - minZ) < EPS) addWindow("x", seg.at, mid, 1);
+            else if (Math.abs(seg.at - maxZ) < EPS) addWindow("x", seg.at, mid, -1);
+        } else {
+            if (Math.abs(seg.at - minX) < EPS) addWindow("z", seg.at, mid, 1);
+            else if (Math.abs(seg.at - maxX) < EPS) addWindow("z", seg.at, mid, -1);
+        }
+    }
 
-    // Front door on the foyer's south wall (visual only).
-    solid(2, 13.82, 2.8, 0.12, 2.5, 1.25, matWood, false);
-
-    // ---- furniture (large pieces also become colliders) -------------------
+    // ---- furniture (a table + cabinet per room, tucked into the corners so
+    //      doorways and standing spots stay clear) --------------------------
     function table(cx, cz, w, d, h, mat) {
-        solid(cx, cz, w, d, 0.1, h - 0.05, mat, false);            // top
+        solid(cx, cz, w, d, 0.1, h - 0.05, mat, false);
         const lx = w / 2 - 0.14;
         const lz = d / 2 - 0.14;
         for (const sx of [-1, 1]) {
@@ -415,90 +500,91 @@ export function buildEnvironment(scene, THREE) {
         colliders.push({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2 });
     }
 
-    function shelf(cx, cz, w, d, h, mat) {
-        const m = solid(cx, cz, w, d, h, h / 2, mat);
-        // lighter shelf lips so the box reads as a bookcase
-        const along = w > d;
-        for (let i = 1; i < 4; i++) {
-            const y = (h / 4) * i;
-            solid(cx, cz, along ? w + 0.04 : w, along ? d + 0.04 : d, 0.05, y, matWoodLight, false, false);
-        }
-        return m;
+    function candle(x, y, z, scale = 1) {
+        const w = 0.06 * scale;
+        const h = 0.3 * scale;
+        const cGeo = new THREE.CylinderGeometry(w, w, h, 8);
+        register(cGeo, matWax);
+        const cm = new THREE.Mesh(cGeo, matWax);
+        cm.position.set(x, y + h / 2, z);
+        cm.castShadow = true;
+        group.add(cm);
+        const fGeo = new THREE.SphereGeometry(0.06 * scale, 8, 6);
+        register(fGeo, matFlame);
+        const fm = new THREE.Mesh(fGeo, matFlame);
+        fm.position.set(x, y + h + 0.05 * scale, z);
+        fm.scale.set(1, 1.5, 1);
+        group.add(fm);
+        flames.push(fm);
+        return fm;
     }
 
-    function plant(cx, cz, s = 1) {
-        const potGeo = new THREE.CylinderGeometry(0.26 * s, 0.2 * s, 0.42 * s, 10);
+    for (const name of ROOMS) {
+        const r = rects[name];
+        const hw = (r.x1 - r.x0) / 2;
+        const hd = (r.z1 - r.z0) / 2;
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        const put = (fx, fz) => [cx + fx * hw, cz + fz * hd];
+
+        const [tx, tz] = put(0.5, 0.52);
+        table(tx, tz, Math.min(3.0, hw * 0.8), Math.min(1.4, hd * 0.5), 0.78, matWood);
+
+        const [sx, sz] = put(-0.55, -0.5);
+        solid(sx, sz, 1.0, 1.0, 1.9, 0.95, matWood); // cabinet
+        candle(sx, 1.9, sz, 1.05);
+    }
+
+    // Conservatory greenery and cellar crates for a little local flavour.
+    if (rooms.conservatory) {
+        const r = rects.conservatory;
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        const potGeo = new THREE.CylinderGeometry(0.3, 0.24, 0.5, 10);
         register(potGeo, matWood);
         const pot = new THREE.Mesh(potGeo, matWood);
-        pot.position.set(cx, 0.21 * s, cz);
+        pot.position.set(cx, 0.25, cz);
         pot.castShadow = true;
-        pot.receiveShadow = true;
         group.add(pot);
-        const leafGeo = new THREE.SphereGeometry(0.3 * s, 10, 8);
+        const leafGeo = new THREE.SphereGeometry(0.34, 10, 8);
         register(leafGeo, matLeaf);
         for (let i = 0; i < 4; i++) {
             const leaf = new THREE.Mesh(leafGeo, matLeaf);
-            leaf.position.set(
-                cx + (Math.random() - 0.5) * 0.4 * s,
-                0.5 * s + Math.random() * 0.5 * s,
-                cz + (Math.random() - 0.5) * 0.4 * s,
-            );
+            leaf.position.set(cx + (Math.random() - 0.5) * 0.4, 0.6 + Math.random() * 0.5, cz + (Math.random() - 0.5) * 0.4);
             leaf.scale.set(1, 1.25, 1);
             leaf.castShadow = true;
             group.add(leaf);
         }
     }
 
-    function planter(cx, cz, w, d) {
-        solid(cx, cz, w, 0.5, 0.55, 0.275, matWood);      // trough
-        solid(cx, cz, w - 0.2, 0.35, 0.12, 0.6, matSoil, false, false);
-        plant(cx - w / 3, cz, 0.9);
-        plant(cx + w / 3, cz, 1.05);
-    }
-
-    // library
-    table(-9, -8, 4.2, 1.6, 0.78, matWood);
-    shelf(-12.5, -13.4, 3, 0.5, 2.6, matWoodLight);
-    shelf(-6.5, -13.4, 3, 0.5, 2.6, matWoodLight);
-    // study
-    table(9, -9, 3, 1.6, 0.8, matWood);
-    shelf(13.4, -8, 0.5, 4, 2.6, matWoodLight);
-    // conservatory
-    planter(-2.6, -12.6, 2.4, 1.1);
-    planter(2.6, -12.6, 2.4, 1.1);
-    // foyer
-    table(8, 13.4, 3, 0.6, 0.9, matWood);
-    // cellar
-    shelf(-13.4, 0, 0.5, 5, 2.2, matWood);
-    shelf(-13.4, 7, 0.5, 5, 2.2, matWood);
-    solid(-6, 10, 1.2, 1.2, 1.2, 0.6, matWood);
-    solid(-4.7, 10.6, 0.9, 0.9, 0.9, 0.45, matWood);
-
     // ---- lighting ---------------------------------------------------------
-    const hemi = new THREE.HemisphereLight(0x54688c, 0x2a2118, 0.55);
+    const hemi = new THREE.HemisphereLight(P.light, P.floor, 0.5);
     group.add(hemi);
 
-    // A cool moon through the conservatory roof, casting a soft directional shadow.
-    const moon = new THREE.DirectionalLight(0x9db4e8, 0.55);
-    moon.position.set(26, 34, -18);
-    moon.castShadow = true;
-    moon.shadow.mapSize.set(1024, 1024);
-    moon.shadow.camera.left = -22;
-    moon.shadow.camera.right = 22;
-    moon.shadow.camera.top = 22;
-    moon.shadow.camera.bottom = -22;
-    moon.shadow.camera.near = 1;
-    moon.shadow.camera.far = 120;
-    moon.shadow.bias = -0.0015;
-    group.add(moon);
-    lights.push(moon);
+    // Warm key light from above, the only directional shadow caster.
+    const key = new THREE.DirectionalLight(P.light, 0.5);
+    key.position.set(centreX + extent * 0.5, Math.max(30, extent), centreZ - extent * 0.45);
+    key.target.position.set(centreX, 0, centreZ);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    const shadowR = extent * 0.75 + 6;
+    key.shadow.camera.left = -shadowR;
+    key.shadow.camera.right = shadowR;
+    key.shadow.camera.top = shadowR;
+    key.shadow.camera.bottom = -shadowR;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = extent * 3 + 80;
+    key.shadow.bias = -0.0015;
+    group.add(key);
+    group.add(key.target);
+    lights.push(key);
 
     function point(color, intensity, distance, pos, { shadow = false, decay = 1.0 } = {}) {
         const l = new THREE.PointLight(color, intensity, distance, decay);
         l.position.set(pos[0], pos[1], pos[2]);
         if (shadow) {
             l.castShadow = true;
-            l.shadow.mapSize.set(1024, 1024);
+            l.shadow.mapSize.set(512, 512);
             l.shadow.bias = -0.002;
             l.shadow.radius = 4;
             l.shadow.camera.near = 0.2;
@@ -509,43 +595,23 @@ export function buildEnvironment(scene, THREE) {
         return l;
     }
 
-    // Room lights (four cast soft shadows).
-    const chandelierLight = point(0xffd9a0, 14, 26, [5, 3.1, 5], { shadow: true });
-    point(0xffc98a, 9, 14, [-9, 1.75, -8], { shadow: true });    // library lamp
-    point(0xffc98a, 9, 14, [9, 1.75, -9], { shadow: true });     // study lamp
-    point(0xffb060, 7, 12, [-9, 2.2, 6], { shadow: true });      // cellar lantern
-    point(0x9fc0ff, 6, 16, [0, 3.0, -8], {});                    // conservatory moonlight
-
-    function candle(x, y, z, scale = 1) {
-        const w = 0.06 * scale;
-        const h = 0.3 * scale;
-        const cGeo = new THREE.CylinderGeometry(w, w, h, 8);
-        register(cGeo, matWax);
-        const c = new THREE.Mesh(cGeo, matWax);
-        c.position.set(x, y + h / 2, z);
-        c.castShadow = true;
-        group.add(c);
-        const fGeo = new THREE.SphereGeometry(0.06 * scale, 8, 6);
-        register(fGeo, matFlame);
-        const f = new THREE.Mesh(fGeo, matFlame);
-        f.position.set(x, y + h + 0.05 * scale, z);
-        f.scale.set(1, 1.5, 1);
-        group.add(f);
-        flames.push(f);
-        const l = point(0xffb060, 3.2, 6, [x, y + h + 0.1, z], { decay: 1.2 });
-        flickers.push({ light: l, base: 3.2, phase: Math.random() * 6.28, speed: 9 + Math.random() * 4, flame: f });
-        return f;
+    // One warm lamp per room; only the foyer's casts a shadow (a few casters,
+    // never dozens).
+    for (const name of ROOMS) {
+        const r = rects[name];
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        const span = Math.max(r.x1 - r.x0, r.z1 - r.z0);
+        const isHub = name === "foyer";
+        const base = isHub ? 13 : 9;
+        const l = point(P.light, base, span * 1.6 + 6, [cx, isHub ? 3.1 : 2.7, cz], { shadow: isHub });
+        flickers.push({ light: l, base, phase: Math.random() * 6.28, speed: 2 + Math.random() * 1.6, flame: null });
     }
-    candle(-9, 0.78, -7.6);      // library table
-    candle(9, 0.8, -8.6);        // study desk
-    candle(8, 0.9, 13.2);        // foyer console
 
-    // Main room lights also flicker very gently.
-    flickers.push({ light: chandelierLight, base: 14, phase: 1.3, speed: 2.2, flame: null });
-
-    // ---- chandelier, lamps and lantern meshes -----------------------------
+    // ---- chandelier in the foyer -----------------------------------------
+    const foyer = rooms.foyer;
     const chandelier = new THREE.Group();
-    chandelier.position.set(5, 3.25, 5);
+    chandelier.position.set(foyer.center[0], 3.25, foyer.center[1]);
     const chainGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.35, 6);
     register(chainGeo, matBrass);
     const chain = new THREE.Mesh(chainGeo, matBrass);
@@ -559,68 +625,37 @@ export function buildEnvironment(scene, THREE) {
     chandelier.add(ring);
     for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
-        const cx = Math.cos(a) * 1.0;
-        const cz = Math.sin(a) * 1.0;
         const cGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.28, 8);
         register(cGeo, matWax);
         const cm = new THREE.Mesh(cGeo, matWax);
-        cm.position.set(cx, 0.14, cz);
+        cm.position.set(Math.cos(a), 0.14, Math.sin(a));
         chandelier.add(cm);
         const fGeo = new THREE.SphereGeometry(0.06, 8, 6);
         register(fGeo, matFlame);
         const fm = new THREE.Mesh(fGeo, matFlame);
-        fm.position.set(cx, 0.34, cz);
+        fm.position.set(Math.cos(a), 0.34, Math.sin(a));
         fm.scale.set(1, 1.5, 1);
         chandelier.add(fm);
         flames.push(fm);
     }
     group.add(chandelier);
 
-    function floorLamp(x, z, h) {
-        const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, h, 8);
-        register(poleGeo, matBrass);
-        const pole = new THREE.Mesh(poleGeo, matBrass);
-        pole.position.set(x, h / 2, z);
-        pole.castShadow = true;
-        group.add(pole);
-        const shadeGeo = new THREE.CylinderGeometry(0.28, 0.4, 0.42, 14, 1, true);
-        register(shadeGeo, matShade);
-        const shade = new THREE.Mesh(shadeGeo, matShade);
-        shade.position.set(x, h, z);
-        group.add(shade);
-    }
-    floorLamp(-9, -8.9, 1.55);
-    floorLamp(9, -9.9, 1.55);
-
-    // Cellar lantern: a small emissive box hanging from the low ceiling.
-    const lant = new THREE.Group();
-    lant.position.set(-9, 2.2, 6);
-    const lantGeo = new THREE.BoxGeometry(0.34, 0.44, 0.34);
-    register(lantGeo, matShade);
-    lant.add(new THREE.Mesh(lantGeo, matShade));
-    const lantTopGeo = new THREE.ConeGeometry(0.26, 0.18, 4);
-    register(lantTopGeo, matBrass);
-    const lantTop = new THREE.Mesh(lantTopGeo, matBrass);
-    lantTop.position.y = 0.3;
-    lantTop.rotation.y = Math.PI / 4;
-    lant.add(lantTop);
-    group.add(lant);
-
     // ---- sky dome + dust --------------------------------------------------
-    const skyGeo = new THREE.SphereGeometry(60, 32, 16);
+    const skyRadius = Math.max(60, extent * 1.6);
+    const skyGeo = new THREE.SphereGeometry(skyRadius, 32, 16);
     const skyMat = new THREE.MeshBasicMaterial({ map: texSky(THREE), side: THREE.BackSide, fog: false });
     register(skyGeo, skyMat);
     texSet.add(skyMat.map);
     const sky = new THREE.Mesh(skyGeo, skyMat);
-    sky.position.set(0, 0, 0);
+    sky.position.set(centreX, 0, centreZ);
     group.add(sky);
 
-    const dustCount = 260;
+    const dustCount = 220;
     const dustPos = new Float32Array(dustCount * 3);
     for (let i = 0; i < dustCount; i++) {
-        dustPos[i * 3] = -3 + Math.random() * 16;
+        dustPos[i * 3] = centreX + (Math.random() - 0.5) * extent * 0.9;
         dustPos[i * 3 + 1] = 0.3 + Math.random() * 3.0;
-        dustPos[i * 3 + 2] = -1 + Math.random() * 14;
+        dustPos[i * 3 + 2] = centreZ + (Math.random() - 0.5) * extent * 0.9;
     }
     const dustGeo = new THREE.BufferGeometry();
     dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPos, 3));
@@ -633,26 +668,62 @@ export function buildEnvironment(scene, THREE) {
     const dust = new THREE.Points(dustGeo, dustMat);
     group.add(dust);
 
-    // ---- data records -----------------------------------------------------
-    const rooms = {
-        foyer: { center: [5, 6], size: [18, 16] },
-        library: { center: [-9, -8], size: [10, 12] },
-        study: { center: [9, -8], size: [10, 12] },
-        conservatory: { center: [0, -8], size: [8, 12] },
-        cellar: { center: [-9, 6], size: [10, 16] },
+    // ---- fog from the palette ---------------------------------------------
+    const fog = new THREE.Fog(P.fog, Math.max(6, extent * 0.35), extent * 1.8 + 20);
+    scene.fog = fog;
+
+    // ---- anchors, spawn ---------------------------------------------------
+    // People face the foyer (the hub); the foyer faces the rest of the house.
+    const hub = foyer.center;
+    const rest = ROOMS.filter((n) => n !== "foyer").map((n) => rooms[n].center);
+    let restX = 0;
+    let restZ = 0;
+    for (const c of rest) { restX += c[0]; restZ += c[1]; }
+    restX /= rest.length || 1;
+    restZ /= rest.length || 1;
+
+    const yawToward = (ax, az, bx, bz) => {
+        const dx = bx - ax;
+        const dz = bz - az;
+        if (Math.hypot(dx, dz) < 1e-4) return 0;
+        return Math.atan2(-dx, -dz); // forward is -Z at yaw 0
     };
 
-    // One clear standing spot per room, facing into the space.
-    const anchors = {
-        foyer: { position: [2, 0, 4], facing: 0 },
-        library: { position: [-9, 0, -4.5], facing: 0 },
-        study: { position: [9, 0, -4.5], facing: 0 },
-        conservatory: { position: [0, 0, -6], facing: Math.PI },
-        cellar: { position: [-9, 0, 8], facing: 0 },
-    };
+    const anchors = {};
+    for (const name of ROOMS) {
+        const r = rooms[name];
+        const [cx, cz] = r.center;
+        let px = cx;
+        let pz = cz;
+        let target = hub;
+        if (name === "foyer") {
+            target = [restX, restZ];
+        } else {
+            // Shift the standing spot a little toward the hub, toward the door.
+            const dx = hub[0] - cx;
+            const dz = hub[1] - cz;
+            const len = Math.hypot(dx, dz) || 1;
+            const shift = 0.15 * Math.min(r.size[0], r.size[1]) / 2;
+            px = cx + (dx / len) * shift;
+            pz = cz + (dz / len) * shift;
+        }
+        anchors[name] = { position: [round(px), 0, round(pz)], facing: yawToward(px, pz, target[0], target[1]) };
+    }
 
-    // Start in the foyer near the front door, looking north into the house.
-    const spawn = { position: [2, 0, 11], yaw: 0 };
+    // Spawn near the foyer's outer edge, looking into the house.
+    let ox = foyer.center[0] - restX;
+    let oz = foyer.center[1] - restZ;
+    if (Math.hypot(ox, oz) < 1e-4) {
+        const first = rooms[ROOMS.find((n) => n !== "foyer")];
+        ox = first.center[0] - foyer.center[0];
+        oz = first.center[1] - foyer.center[1];
+    }
+    const olen = Math.hypot(ox, oz) || 1;
+    const reach = 0.3 * Math.min(foyer.size[0], foyer.size[1]) / 2;
+    const spawn = {
+        position: [round(foyer.center[0] + (ox / olen) * reach), 0, round(foyer.center[1] + (oz / olen) * reach)],
+        yaw: yawToward(foyer.center[0] + (ox / olen) * reach, foyer.center[1] + (oz / olen) * reach, restX, restZ),
+    };
 
     // ---- per-frame animation ---------------------------------------------
     let time = 0;
@@ -664,10 +735,15 @@ export function buildEnvironment(scene, THREE) {
             f.light.intensity = f.base * (1 + n * 0.14);
             if (f.flame) f.flame.scale.set(1 + n * 0.14, 1.5 + n * 0.2, 1 + n * 0.14);
         }
-        // a barely-there sway on the chandelier
+        // A barely-there sway on the chandelier.
         chandelier.rotation.z = Math.sin(time * 0.6) * 0.012;
         chandelier.rotation.x = Math.cos(time * 0.43) * 0.008;
-        // dust drifts slowly through the hall
+        // Candles breathe.
+        for (const fm of flames) {
+            const n = Math.sin(time * 8 + fm.position.x * 3 + fm.position.z * 2);
+            fm.scale.set(1 + n * 0.1, 1.5 + n * 0.18, 1 + n * 0.1);
+        }
+        // Dust drifts slowly through the house.
         dust.rotation.y = time * 0.015;
         dust.position.y = Math.sin(time * 0.2) * 0.15;
     }
@@ -675,6 +751,7 @@ export function buildEnvironment(scene, THREE) {
     // ---- teardown ---------------------------------------------------------
     function dispose() {
         scene.remove(group);
+        if (scene.fog === fog) scene.fog = null;
         for (const l of lights) {
             if (typeof l.dispose === "function") l.dispose();
         }
@@ -690,5 +767,5 @@ export function buildEnvironment(scene, THREE) {
         colliders.length = 0;
     }
 
-    return { rooms, anchors, colliders, spawn, update, dispose };
+    return { rooms, anchors, colliders, spawn, palette: P, update, dispose };
 }
