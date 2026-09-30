@@ -4,85 +4,188 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Whodunnit 3D — a voice murder mystery</title>
+        <meta name="description" content="Walk a mansion, question five AI suspects, catch the liar, accuse the killer. A voice murder mystery on Pollinations." />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128269;</text></svg>" />
+        <link rel="preconnect" href="https://gen.pollinations.ai" />
         <style>
             :root {
-                --ink: #f4e9da;
-                --dim: #c2ab93;
-                --panel: rgba(22, 17, 13, 0.86);
-                --line: #4a382a;
-                --gold: #e2b167;
+                --ink: #f6ecdd;
+                --dim: #c9b39a;
+                --gold: #e6b96a;
+                --gold-soft: #f0d39a;
                 --red: #e06a62;
-                --green: #7fc46b;
+                --green: #86c973;
+                --line: rgba(150, 116, 78, 0.34);
+                --panel: rgba(24, 18, 13, 0.78);
+                --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+                --ease: cubic-bezier(0.22, 1, 0.36, 1);
             }
             * { box-sizing: border-box; }
             html, body { height: 100%; }
             body {
-                margin: 0; background: #0d0a08; color: var(--ink); overflow: hidden;
-                font: 15px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+                margin: 0; background: #0b0907; color: var(--ink); overflow: hidden;
+                font: 16px/1.55 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                -webkit-font-smoothing: antialiased;
             }
             canvas { display: block; }
             .hidden { display: none !important; }
             .ux { position: fixed; z-index: 5; }
+
+            /* ---------- typography ---------- */
+            h1, h2, h3 { letter-spacing: 0.01em; }
+            .display { font-family: "Fraunces Soft", "Iowan Old Style", Georgia, serif; }
+
+            /* ---------- buttons ---------- */
             button {
-                font: inherit; color: var(--ink); background: rgba(40, 31, 24, 0.92);
-                border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.85rem; cursor: pointer;
+                font: inherit; color: var(--ink); cursor: pointer; position: relative;
+                background: linear-gradient(180deg, rgba(58, 45, 34, 0.96), rgba(38, 29, 22, 0.96));
+                border: 1px solid var(--line); border-radius: 11px; padding: 0.62rem 1.05rem;
+                transition: transform 0.18s var(--ease), box-shadow 0.25s var(--ease), border-color 0.25s var(--ease), background 0.25s var(--ease);
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+                overflow: hidden;
             }
-            button:hover:not(:disabled) { border-color: var(--gold); }
-            button:disabled { opacity: 0.45; cursor: not-allowed; }
-            button.primary { background: var(--gold); color: #241a12; border-color: var(--gold); font-weight: 600; }
+            button::after {
+                content: ""; position: absolute; inset: 0; pointer-events: none;
+                background: linear-gradient(120deg, transparent 30%, rgba(255, 240, 210, 0.22) 50%, transparent 70%);
+                transform: translateX(-120%); transition: transform 0.6s var(--ease);
+            }
+            button:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--gold); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(230, 185, 106, 0.25); }
+            button:hover:not(:disabled)::after { transform: translateX(120%); }
+            button:active:not(:disabled) { transform: translateY(0) scale(0.985); }
+            button:disabled { opacity: 0.42; cursor: not-allowed; }
+            button.primary {
+                background: linear-gradient(180deg, var(--gold-soft), var(--gold)); color: #2a1c10; border-color: #f0cf95;
+                font-weight: 700; box-shadow: 0 6px 22px rgba(230, 185, 106, 0.32);
+            }
+            button.primary:hover:not(:disabled) { box-shadow: 0 12px 30px rgba(230, 185, 106, 0.45); }
+            button.ghost { background: transparent; box-shadow: none; }
+            button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
             input[type="text"] {
-                font: inherit; color: var(--ink); background: rgba(20, 15, 12, 0.9);
-                border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.6rem;
+                font: inherit; color: var(--ink); background: rgba(16, 12, 9, 0.9);
+                border: 1px solid var(--line); border-radius: 9px; padding: 0.58rem 0.7rem;
+                transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
             }
-            #crosshair { top: 50%; left: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border: 1px solid rgba(255,255,255,0.6); border-radius: 50%; }
-            #hint { top: 56%; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.8rem; }
-            #top { top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1rem; background: linear-gradient(rgba(13,10,8,0.9), transparent); }
-            #top h1 { font-size: 1.05rem; margin: 0; }
+            input[type="text"]:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(230, 185, 106, 0.18); }
+
+            /* ---------- title screen (split) ---------- */
+            #splash { position: fixed; inset: 0; z-index: 9; display: grid; grid-template-columns: minmax(20rem, 30rem) 1fr; transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
+            #splash::after {
+                content: ""; position: absolute; inset: 0; pointer-events: none;
+                background: linear-gradient(90deg, rgba(11, 9, 7, 0.96) 0%, rgba(11, 9, 7, 0.82) 32%, rgba(11, 9, 7, 0.18) 58%, rgba(11, 9, 7, 0) 78%);
+            }
+            #splash.leaving { opacity: 0; transform: scale(1.03); pointer-events: none; }
+            .menu {
+                position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 1.15rem;
+                padding: 2.4rem clamp(1.4rem, 4vw, 3rem); border-right: 1px solid var(--line);
+                background: linear-gradient(180deg, rgba(18, 14, 10, 0.86), rgba(12, 9, 7, 0.94));
+                backdrop-filter: blur(7px);
+                animation: menuIn 0.8s var(--ease) both;
+            }
+            @keyframes menuIn { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+            .menu .kicker { color: var(--gold); font-size: 0.78rem; letter-spacing: 0.32em; text-transform: uppercase; }
+            .menu h1 { font-size: clamp(2.6rem, 5.4vw, 4rem); line-height: 0.95; margin: 0; }
+            .menu h1 em { font-style: normal; color: var(--gold); display: block; }
+            .menu p.lede { color: var(--dim); margin: 0; max-width: 26rem; }
+            .menu .actions { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.6rem; }
+            .menu .actions button { width: 100%; padding: 0.85rem 1.1rem; font-size: 1.02rem; text-align: left; }
+            .menu .actions button .sub { display: block; font-size: 0.78rem; opacity: 0.72; font-weight: 400; margin-top: 0.15rem; }
+            .menu .status { color: var(--dim); font-size: 0.85rem; min-height: 1.2em; }
+            .menu .hint { color: var(--dim); font-size: 0.82rem; opacity: 0.85; }
+            .menu .hint kbd {
+                font: inherit; font-size: 0.78rem; background: rgba(255, 255, 255, 0.06);
+                border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0.05rem 0.35rem;
+            }
+            .menu footer { color: var(--dim); font-size: 0.76rem; opacity: 0.8; margin-top: 0.8rem; }
+            @media (max-width: 780px) {
+                #splash { grid-template-columns: 1fr; }
+                #splash::after { background: linear-gradient(180deg, rgba(11, 9, 7, 0.2) 0%, rgba(11, 9, 7, 0.85) 55%, rgba(11, 9, 7, 0.97) 100%); }
+                .menu { border-right: 0; border-top: 1px solid var(--line); justify-content: flex-end; }
+            }
+
+            /* ---------- in-game HUD ---------- */
+            #crosshair { top: 50%; left: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border: 1.5px solid rgba(255, 255, 255, 0.75); border-radius: 50%; box-shadow: 0 0 8px rgba(0, 0, 0, 0.6); transition: transform 0.15s var(--ease); }
+            #crosshair.hot { transform: scale(1.6); border-color: var(--gold); }
+            #hint {
+                top: 58%; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line);
+                border-radius: 999px; padding: 0.42rem 0.95rem; backdrop-filter: blur(6px); box-shadow: var(--shadow);
+                animation: pop 0.25s var(--ease) both;
+            }
+            @keyframes pop { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+            #top {
+                top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+                padding: 0.85rem 1.15rem; background: linear-gradient(rgba(9, 7, 5, 0.86), transparent);
+            }
+            #top h1 { font-size: 1.06rem; margin: 0; }
             #top h1 span { color: var(--gold); }
-            #brief { max-width: 30rem; color: var(--dim); font-size: 0.9rem; }
+            #brief { max-width: 34rem; color: var(--dim); font-size: 0.9rem; }
+            #status { color: var(--dim); font-size: 0.85rem; }
+
             #panel {
-                right: 1rem; top: 4.5rem; width: min(26rem, 92vw); max-height: calc(100vh - 6rem);
-                background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-                padding: 1rem; overflow: auto; backdrop-filter: blur(6px);
+                right: 1.15rem; top: 4.6rem; width: min(27rem, 92vw); max-height: calc(100vh - 6.2rem);
+                background: var(--panel); border: 1px solid var(--line); border-radius: 15px; padding: 1.05rem;
+                overflow: auto; backdrop-filter: blur(10px); box-shadow: var(--shadow);
+                animation: panelIn 0.28s var(--ease) both;
             }
-            #panel h2 { margin: 0 0 0.25rem; font-size: 1.05rem; }
+            @keyframes panelIn { from { opacity: 0; transform: translateX(18px) scale(0.98); } to { opacity: 1; transform: none; } }
+            #panel h2 { margin: 0 0 0.15rem; font-size: 1.1rem; }
             #panel .role { color: var(--dim); font-size: 0.85rem; }
-            #log { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.7rem 0; }
+            #log { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0; }
             #log .q { color: var(--gold); }
-            #notes { position: fixed; left: 1rem; bottom: 1rem; width: min(24rem, 90vw); max-height: 40vh; overflow: auto;
-                background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0.8rem 1rem; backdrop-filter: blur(6px); }
-            #notes h3 { margin: 0 0 0.4rem; font-size: 0.9rem; color: var(--dim); }
+            #log .a { color: var(--ink); }
+            #notes {
+                left: 1.15rem; bottom: 1.15rem; width: min(25rem, 90vw); max-height: 42vh; overflow: auto;
+                background: var(--panel); border: 1px solid var(--line); border-radius: 15px; padding: 0.85rem 1.05rem;
+                backdrop-filter: blur(10px); box-shadow: var(--shadow);
+            }
+            #notes h3 { margin: 0 0 0.4rem; font-size: 0.85rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.16em; }
             #notes li { margin-bottom: 0.45rem; }
-            .flag { color: var(--red); font-weight: 600; }
+            .flag { color: var(--red); font-weight: 700; }
             .ok { color: var(--green); }
-            #banner { position: fixed; z-index: 8; top: 4.5rem; left: 50%; transform: translateX(-50%); max-width: 40rem;
-                background: rgba(60, 20, 18, 0.95); border: 1px solid var(--red); border-radius: 10px; padding: 0.6rem 1rem; }
-            #splash { position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
-                background: radial-gradient(900px 500px at 50% 20%, #241a12, #0d0a08); text-align: center; padding: 2rem; }
-            #splash p { max-width: 34rem; color: var(--dim); }
-            audio { width: 100%; margin-top: 0.4rem; }
+            #banner {
+                position: fixed; z-index: 8; top: 4.6rem; left: 50%; transform: translateX(-50%); max-width: 42rem;
+                background: rgba(62, 22, 20, 0.95); border: 1px solid var(--red); border-radius: 12px; padding: 0.65rem 1.05rem;
+                box-shadow: var(--shadow); animation: pop 0.25s var(--ease) both;
+            }
+            audio { width: 100%; margin-top: 0.45rem; }
+            @media (prefers-reduced-motion: reduce) {
+                *, *::after { animation: none !important; transition: none !important; }
+            }
         </style>
     </head>
     <body>
         <div id="banner" class="ux hidden"></div>
 
+        <!-- title screen: menu on the left, the live 3D house as the backdrop -->
         <div id="splash">
-            <h1 style="font-size: 2rem; margin: 0">Whodunnit <span style="color: var(--gold)">3D</span></h1>
-            <p>Someone is dead. Five people had the chance. Question them out loud, catch the one whose story breaks, and accuse the killer.</p>
-            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center">
-                <button id="splash-connect" class="primary">Connect Pollen</button>
-                <button id="splash-start" disabled>Enter the house</button>
+            <div class="menu">
+                <div class="kicker">A voice murder mystery</div>
+                <h1 class="display">Whodunnit<em>3D</em></h1>
+                <p class="lede">Someone is dead. Five people had the chance. Question them out loud, catch the one whose story breaks, and accuse the killer.</p>
+                <div class="actions">
+                    <button id="splash-connect" class="primary">
+                        Connect Pollen
+                        <span class="sub">You pay with your own Pollen — nothing is billed until you ask a question.</span>
+                    </button>
+                    <button id="splash-start">
+                        Enter the house
+                        <span class="sub">WASD to walk · mouse to look · E to talk</span>
+                    </button>
+                </div>
+                <div id="splash-hint" class="status">Sign in to begin.</div>
+                <div class="hint">
+                    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; <kbd>E</kbd> talk &nbsp;·&nbsp; <kbd>Esc</kbd> step away
+                </div>
+                <footer>Suspects are AI (Pollinations text models); their voices are Pollinations TTS.</footer>
             </div>
-            <p id="splash-hint" style="font-size: 0.85rem">You pay with your own Pollen. Click the house, then use WASD + mouse.</p>
-            <p style="font-size: 0.8rem; opacity: 0.7">Loading the house… if nothing appears, your browser needs WebGL enabled.</p>
+            <div aria-hidden="true"></div>
         </div>
 
         <div id="top" class="ux hidden">
             <h1>Whodunnit <span>3D</span></h1>
             <div id="brief"></div>
-            <div style="display:flex; gap:0.5rem; align-items:center">
-                <span id="status" style="color: var(--dim); font-size: 0.85rem"></span>
+            <div style="display: flex; gap: 0.5rem; align-items: center">
+                <span id="status"></span>
                 <button id="accuse" class="primary" disabled>Accuse</button>
             </div>
         </div>
@@ -94,13 +197,13 @@
             <h2 id="p-name"></h2>
             <div class="role" id="p-role"></div>
             <div id="log"></div>
-            <div style="display:flex; gap:0.5rem">
-                <input id="q" type="text" placeholder="Ask them something…" style="flex:1" />
+            <div style="display: flex; gap: 0.5rem">
+                <input id="q" type="text" placeholder="Ask them something…" style="flex: 1" />
                 <button id="ask">Ask</button>
                 <button id="mic" title="Ask out loud">Mic</button>
             </div>
             <audio id="voice" controls preload="none"></audio>
-            <div style="margin-top:0.6rem"><button id="close" class="ghost">Step away</button></div>
+            <div style="margin-top: 0.65rem"><button id="close" class="ghost">Step away</button></div>
         </div>
 
         <div id="notes" class="ux hidden">

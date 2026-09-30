@@ -111,6 +111,7 @@ function updateTarget() {
     if (game.open) return;
     game.target = pickSuspect();
     ui.hint.classList.toggle("hidden", !game.target);
+    ui.crosshair.classList.toggle("hot", Boolean(game.target));
 }
 
 addEventListener("keydown", (event) => {
@@ -251,14 +252,45 @@ ui.accuse.addEventListener("click", () => {
 
 // ---------------------------------------------------------------- splash + auth
 
-ui.splashConnect.addEventListener("click", () => api.connect().catch((error) => showError(error.message)));
-ui.splashStart.addEventListener("click", () => {
-    ui.splash.classList.add("hidden");
-    ui.top.classList.remove("hidden");
-    ui.crosshair.classList.remove("hidden");
-    ui.accuse.disabled = false;
-    controls.lock();
+// ---- title screen: the menu sits on the left, the live house on the right ----
+// A slow orbit with a little mouse parallax. It runs until the player enters.
+let title = true;
+let titleAngle = Math.random() * Math.PI * 2;
+const foyer = env.rooms.foyer?.center ?? [0, 0];
+const titleCenter = new THREE.Vector3(foyer[0], 1.35, foyer[1]);
+const titleRadius = 9.5;
+let parallax = { x: 0, y: 0 };
+addEventListener("mousemove", (event) => {
+    parallax.x = event.clientX / innerWidth - 0.5;
+    parallax.y = event.clientY / innerHeight - 0.5;
 });
+
+function updateTitleCamera(dt) {
+    titleAngle += dt * 0.055;
+    const px = titleCenter.x + Math.sin(titleAngle) * titleRadius + parallax.x * 3.2;
+    const pz = titleCenter.z + Math.cos(titleAngle) * titleRadius + parallax.y * 1.6;
+    camera.position.set(px, 1.75 - parallax.y * 1.1, pz);
+    camera.lookAt(titleCenter.x, 1.25, titleCenter.z);
+}
+
+function enterHouse() {
+    if (!api.signedIn()) {
+        showError("Connect Pollen first — the suspects answer with your own Pollen.");
+        return;
+    }
+    title = false;
+    ui.splash.classList.add("leaving"); // CSS fades the menu out over the 3D
+    setTimeout(() => {
+        ui.splash.classList.add("hidden");
+        ui.top.classList.remove("hidden");
+        ui.crosshair.classList.remove("hidden");
+        ui.accuse.disabled = false;
+        controls.lock();
+    }, 700);
+}
+
+ui.splashConnect.addEventListener("click", () => api.connect().catch((error) => showError(error.message)));
+ui.splashStart.addEventListener("click", enterHouse);
 
 (async () => {
     try {
@@ -267,8 +299,10 @@ ui.splashStart.addEventListener("click", () => {
         showError(error.message);
     }
     ui.status.textContent = api.signedIn() ? "connected" : "";
-    ui.splashStart.disabled = !api.signedIn();
-    if (api.signedIn()) ui.splashHint.textContent = "Connected. Enter the house, then WASD + mouse.";
+    ui.splashStart.disabled = false;
+    ui.splashHint.textContent = api.signedIn()
+        ? "Connected. Enter the house when you are ready."
+        : "Sign in to begin — you pay with your own Pollen.";
 })();
 
 // ---------------------------------------------------------------- loop
@@ -281,7 +315,8 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.05);
-    controls.update(dt);
+    if (title) updateTitleCamera(dt);
+    else controls.update(dt);
     env.update(dt);
     decor.update(dt);
     for (const controller of game.suspects) controller.update(dt);
