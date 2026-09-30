@@ -432,6 +432,15 @@ ui.accuse.addEventListener("click", () => {
     startCutscene(result.correct ? "win" : "lose", controller);
 });
 
+// Build id straight from the loaded bundle URL — proves which version is live.
+{
+    const tag = $("build-tag");
+    if (tag) {
+        const v = new URL(import.meta.url).searchParams.get("v");
+        tag.textContent = v ? `build ${v}` : "build (dev)";
+    }
+}
+
 // ---------------------------------------------------------------- auth + boot
 
 ui.splashConnect.addEventListener("click", () => api.connect().catch((error) => showError(error.message)));
