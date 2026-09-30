@@ -116,7 +116,9 @@ function buildWorld(seed, mapIndex) {
     const suspects = buildSuspects(game.data.suspects, anchors, THREE);
     for (const controller of suspects) layer.add(controller.group);
 
-    const police = buildPolice(layer, THREE, { count: 2, entry: env.spawn.position });
+    // Police are built only when the arrest cutscene starts, so they are never
+    // standing around during the investigation.
+    const police = null;
     const controls = createFirstPerson(camera, renderer.domElement, env.colliders, env.spawn, THREE);
 
     world = { layer, env, decor, suspects, police, controls, map };
@@ -396,6 +398,21 @@ function startCutscene(kind, culpritController) {
     world.controls.unlock?.();
 
     const culprit = game.data.suspects.find((s) => s.id === game.data.culpritId);
+
+    // The officers walk in from the house entrance (the foyer), so build them
+    // there and let the cutscene move them to the culprit.
+    const from = world.env.spawn.position;
+    const to = culpritController.group.position;
+    const dx = to.x - from[0];
+    const dz = to.z - from[2];
+    const dist = Math.hypot(dx, dz) || 1;
+    const entry = [
+        to.x - (dx / dist) * 4.5,
+        from[1],
+        to.z - (dz / dist) * 4.5,
+    ];
+    world.police = buildPolice(world.layer, THREE, { count: 2, entry });
+
     cine = playCutscene({
         scene,
         camera,
@@ -488,7 +505,7 @@ renderer.setAnimationLoop(() => {
     }
     world.env.update(dt);
     world.decor.update(dt);
-    world.police.update(dt);
+    world.police?.update(dt);
     for (const controller of world.suspects) controller.update(dt);
     if (!game.open && !cine && !title) updateTarget();
     renderer.render(scene, camera);
