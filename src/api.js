@@ -3,7 +3,7 @@
 
 const ENTER_URL = "https://enter.pollinations.ai";
 const GEN_URL = "https://gen.pollinations.ai";
-const CLIENT_ID = "pk_e9iOImghhPxaydHB";
+const CLIENT_ID = "pk_kDfqMIS5AXK0947o";
 const TTS_MODEL = "elevenlabs/eleven-flash-v2.5"; // fastest measured (~4.7s vs ~8s)
 const STT_MODEL = "openai/whisper-large-v3";
 
