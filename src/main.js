@@ -237,15 +237,21 @@ async function ask(text) {
         const reply = await api.ask(replyRequest(game.data, suspect, text, history));
         history.push({ role: "user", content: text }, { role: "assistant", content: JSON.stringify(reply) });
         game.history[suspect.id] = history;
+        // Fetch the voice BEFORE showing the line, so the text and the speech
+        // begin at the same moment instead of the words landing seconds early.
+        pending.textContent = `${suspect.name} is finding their words…`;
+        let voiceUrl = null;
+        try {
+            voiceUrl = await api.speak(reply.say, suspect.voice);
+        } catch (error) {
+            showError(error.message); // text still appears below
+        }
         pending.remove();
         addLog("a", `${suspect.name}: ${reply.say}`);
         controller.speak(reply.say);
         if (reply.claim) (game.claimed[suspect.id] ??= []).push(String(reply.claim));
         renderNotebook();
-        api
-            .speak(reply.say, suspect.voice)
-            .then((url) => playVoice(url, controller))
-            .catch((error) => showError(error.message));
+        if (voiceUrl) playVoice(voiceUrl, controller);
     } catch (error) {
         pending.remove();
         showError(error.message);
