@@ -167,3 +167,29 @@ test("the crime marker lands in the room the case names", async () => {
         );
     }
 });
+
+test("unlock keeps the controller alive and movement keeps working", async () => {
+    const { createFirstPerson } = await import("../src/controls.js");
+    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
+    const listeners = {};
+    const dom = {
+        addEventListener() {}, removeEventListener() {},
+        ownerDocument: Object.assign({}, fakeDocument, {
+            addEventListener: (t, fn) => { (listeners[t] ||= []).push(fn); },
+            removeEventListener() {},
+        }),
+        requestPointerLock() {}, style: {},
+    };
+    const controls = createFirstPerson(cammera_obj(camera), dom, [], { position: [0, 0, 0], yaw: 0 }, THREE);
+    assert.equal(typeof controls.unlock, "function", "unlock exists");
+    controls.unlock();               // was: dispose() -> controller bricked
+    controls.update(0.016);          // must still work
+    const before = controls.position.clone();
+    listeners.keydown?.forEach((fn) => fn({ code: "KeyW", target: {}, preventDefault() {} }));
+    controls.update(0.1);
+    assert.notDeepEqual(controls.position.toArray(), before.toArray(), "still moves after unlock");
+    controls.dispose();
+});
+
+// camera is passed positionally; keep the helper tiny
+function cammera_obj(c) { return c; }

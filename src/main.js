@@ -142,13 +142,14 @@ function openInterview(controller) {
         }
     }
     ui.panel.classList.remove("hidden");
-    controls.dispose?.(); // release pointer lock while typing
+    controls.unlock?.(); // free the cursor for typing; keep controls alive
     ui.q.focus();
 }
 
 function closeInterview() {
     game.open = null;
     ui.panel.classList.add("hidden");
+    controls.lock(); // back to walking
 }
 
 function addLog(kind, text) {

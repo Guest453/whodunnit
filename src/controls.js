@@ -70,12 +70,20 @@ export function createFirstPerson(camera, domElement, colliders, spawn, THREE) {
 
   // --- keyboard -------------------------------------------------------------
   const keys = Object.create(null);
+  function typing(e) {
+    const t = e.target;
+    return !!(t && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT"));
+  }
   function onKeyDown(e) {
+    if (typing(e)) return; // let the interview box have the keys
     keys[e.code] = true;
     if (MOVE_CODES.has(e.code) && e.preventDefault) e.preventDefault();
   }
   function onKeyUp(e) {
     keys[e.code] = false;
+  }
+  function clearKeys() {
+    for (const k of Object.keys(keys)) keys[k] = false;
   }
 
   if (doc) {
@@ -182,6 +190,16 @@ export function createFirstPerson(camera, domElement, colliders, spawn, THREE) {
     return !!(doc && doc.pointerLockElement === domElement);
   }
 
+  /** Leave pointer lock but keep the controller listening (unlike dispose()). */
+  function unlock() {
+    if (controls && controls.unlock) {
+      try { controls.unlock(); return; } catch (_) { /* fall through */ }
+    }
+    if (doc && doc.exitPointerLock && doc.pointerLockElement === domElement) {
+      doc.exitPointerLock();
+    }
+  }
+
   function dispose() {
     if (doc) {
       doc.removeEventListener("keydown", onKeyDown);
@@ -199,7 +217,7 @@ export function createFirstPerson(camera, domElement, colliders, spawn, THREE) {
 
   // `position` is a shared Vector3; `yaw` is exposed through a getter so the
   // caller always reads the current heading rather than a stale snapshot.
-  const api = { update, lock, isLocked, position, dispose };
+  const api = { update, lock, unlock, isLocked, position, dispose };
   Object.defineProperty(api, "yaw", { get: () => yaw, enumerable: true });
   return api;
 }
