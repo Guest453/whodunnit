@@ -147,3 +147,23 @@ test("controls.js returns the first-person interface", async () => {
     assert.equal(typeof controls.yaw, "number", "yaw is a number");
     controls.update(0.016);
 });
+
+test("the crime marker lands in the room the case names", async () => {
+    const { generateCase } = await import("../case.js");
+    for (const seed of [1, 2, 3, 42, 424242, 987654]) {
+        const scene = new THREE.Scene();
+        const env = buildEnvironment(scene, THREE);
+        const data = generateCase(seed);
+        const roomName = String(data.scene).replace(/^the /, "");
+        const decor = buildDecor(scene, THREE, env.rooms, roomName);
+        const [x, , z] = decor.evidence.position; // [x, y, z]
+        const room = env.rooms[roomName];
+        assert.ok(room, `seed ${seed}: room ${roomName} exists`);
+        const [cx, cz] = room.center;
+        const [w, d] = room.size;
+        assert.ok(
+            Math.abs(x - cx) <= w / 2 + 1 && Math.abs(z - cz) <= d / 2 + 1,
+            `seed ${seed}: evidence at ${x},${z} is inside ${roomName} (${cx},${cz} ${w}x${d})`,
+        );
+    }
+});

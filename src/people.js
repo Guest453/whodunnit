@@ -235,13 +235,13 @@ function drawBubble(THREE, bubble, text) {
   const { ctx, canvas, tex } = bubble;
   const W = 480;
   const pad = 24;
+  const font = 30;
   const lh = 38;
   const maxLines = 4;
   const tail = 20;
-  const H0 = pad * 2 + maxLines * lh + tail;
   const family = 'Georgia, "Times New Roman", serif';
 
-  ctx.font = `600 30px ${family}`;
+  ctx.font = `600 ${font}px ${family}`;
   const words = String(text == null ? "" : text).split(/\s+/).filter(Boolean);
   const lines = [];
   let line = "";
@@ -260,8 +260,8 @@ function drawBubble(THREE, bubble, text) {
   const bodyH = pad * 2 + lines.length * lh;
   const H = bodyH + tail;
   canvas.width = W;
-  canvas.height = Math.max(H, H0 * 0 + H); // keep a stable aspect for the texture
-  ctx.font = `600 30px ${family}`;
+  canvas.height = H;
+  ctx.font = `600 ${font}px ${family}`;
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
   ctx.clearRect(0, 0, W, H);

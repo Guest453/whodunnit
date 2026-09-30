@@ -75,11 +75,11 @@ const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 2
 const clock = new THREE.Clock();
 
 const env = buildEnvironment(scene, THREE);
-const decor = buildDecor(scene, THREE, env.rooms);
-const controls = createFirstPerson(camera, renderer.domElement, env.colliders, env.spawn, THREE);
-
-// Place the five suspects at the five room anchors, in order.
+// The case decides which room is the crime scene, so build it before the decor.
 game.data = generateCase(game.seed);
+const crimeScene = String(game.data.scene).replace(/^the /, "");
+const decor = buildDecor(scene, THREE, env.rooms, crimeScene);
+const controls = createFirstPerson(camera, renderer.domElement, env.colliders, env.spawn, THREE);
 const anchors = ROOMS.map((name) => env.anchors[name]);
 game.suspects = buildSuspects(game.data.suspects, anchors, THREE);
 for (const controller of game.suspects) {

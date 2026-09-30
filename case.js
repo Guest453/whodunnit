@@ -70,9 +70,10 @@ const TRAITS = [
 
 const TIMES = ["11:05 pm", "11:20 pm", "11:40 pm", "midnight", "12:15 am"];
 
-const ROOMS = [
-    "the study", "the west wing", "the library", "the cellar", "the conservatory",
-    "the boathouse", "the projection room", "the wine cellar", "the greenhouse",
+// The scene and cover room must name real rooms in the 3D mansion (src/env.js),
+// so the crime marker and the notebook line up with the map.
+export const MAP_ROOM_LABELS = [
+    "the foyer", "the library", "the study", "the conservatory", "the cellar",
 ];
 
 const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
@@ -102,7 +103,7 @@ export function generateCase(seed) {
     const setting = pick(rng, SETTINGS);
     const weapon = pick(rng, WEAPONS);
     const murderTime = pick(rng, TIMES);
-    const scene = pick(rng, ROOMS);
+    const scene = pick(rng, MAP_ROOM_LABELS);
 
     const usedNames = new Set();
     const names = takeDistinct(rng, NAMES, 5, usedNames);
@@ -130,7 +131,7 @@ export function generateCase(seed) {
 
     const culprit = suspects[culpritIndex];
     const witness = suspects[witnessIndex];
-    const coverRoom = pick(rng, ROOMS.filter((room) => room !== scene));
+    const coverRoom = pick(rng, MAP_ROOM_LABELS.filter((room) => room !== scene));
 
     // The clue only the killer could know — a second way to catch them.
     const tell = pick(rng, [
