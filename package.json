@@ -5,7 +5,7 @@
     "type": "module",
     "description": "A voice murder mystery in 3D. Question AI suspects, catch a contradiction, accuse the killer.",
     "scripts": {
-        "build": "esbuild src/main.js --bundle --format=esm --outfile=dist/bundle.js --minify",
+        "build": "esbuild src/main.js --bundle --format=esm --outfile=dist/bundle.js --minify && node scripts/stamp.mjs",
         "dev": "esbuild src/main.js --bundle --format=esm --outfile=dist/bundle.js --watch",
         "test": "node --test case.test.mjs && node wiring.test.mjs"
     },
