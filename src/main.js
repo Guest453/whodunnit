@@ -31,6 +31,10 @@ const ui = {
     ask: $("ask"),
     mic: $("mic"),
     voice: $("voice"),
+    voiceToggle: $("voice-toggle"),
+    voiceTrack: $("voice-track"),
+    voiceFill: $("voice-fill"),
+    voiceTime: $("voice-time"),
     close: $("close"),
     notes: $("notes"),
     noteList: $("note-list"),
@@ -124,6 +128,60 @@ renderer.domElement.addEventListener("click", () => {
     if (!controls.isLocked()) controls.lock();
 });
 
+// ---------------------------------------------------------------- voice player
+
+const clip = new Audio();
+clip.preload = "auto";
+let speaking = null; // the suspect currently talking
+
+const fmtTime = (seconds) => {
+    if (!Number.isFinite(seconds)) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const sec = Math.floor(seconds % 60);
+    return `${m}:${String(sec).padStart(2, "0")}`;
+};
+
+function setPlaying(on) {
+    ui.voice.classList.toggle("playing", on);
+    ui.voiceToggle.textContent = on ? "Pause" : "Play";
+    if (speaking) speaking.setTalking(on);
+}
+
+clip.addEventListener("timeupdate", () => {
+    const pct = clip.duration ? (clip.currentTime / clip.duration) * 100 : 0;
+    ui.voiceFill.style.width = `${pct}%`;
+    ui.voiceTime.textContent = fmtTime(clip.currentTime);
+});
+clip.addEventListener("play", () => setPlaying(true));
+clip.addEventListener("pause", () => setPlaying(false));
+clip.addEventListener("ended", () => {
+    setPlaying(false);
+    ui.voiceFill.style.width = "0%";
+    ui.voiceTime.textContent = "0:00";
+});
+
+/** Load a clip and play it; the player UI is the only control surface. */
+function playVoice(url, suspectController) {
+    speaking = suspectController;
+    ui.voice.classList.remove("hidden");
+    clip.src = url;
+    clip.currentTime = 0;
+    clip.play().catch(() => {
+        // Autoplay blocked (quick subsequent lines). The Play button is right there.
+        setPlaying(false);
+    });
+}
+
+ui.voiceToggle.addEventListener("click", () => {
+    if (clip.paused) clip.play().catch(() => {});
+    else clip.pause();
+});
+ui.voiceTrack.addEventListener("click", (event) => {
+    if (!clip.duration) return;
+    const rect = ui.voiceTrack.getBoundingClientRect();
+    clip.currentTime = ((event.clientX - rect.left) / rect.width) * clip.duration;
+});
+
 // ---------------------------------------------------------------- interview
 
 function openInterview(controller) {
@@ -150,6 +208,7 @@ function openInterview(controller) {
 function closeInterview() {
     game.open = null;
     ui.panel.classList.add("hidden");
+    clip.pause();
     controls.lock(); // back to walking
 }
 
@@ -184,9 +243,7 @@ async function ask(text) {
         renderNotebook();
         api
             .speak(reply.say, suspect.voice)
-            .then((url) => {
-                ui.voice.src = url;
-            })
+            .then((url) => playVoice(url, controller))
             .catch((error) => showError(error.message));
     } catch (error) {
         pending.remove();

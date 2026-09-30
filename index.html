@@ -148,6 +148,19 @@
                 box-shadow: var(--shadow); animation: pop 0.25s var(--ease) both;
             }
             audio { width: 100%; margin-top: 0.45rem; }
+            /* ---------- custom voice player ---------- */
+            .player {
+                display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem;
+                background: rgba(14, 10, 8, 0.7); border: 1px solid var(--line); border-radius: 11px; padding: 0.5rem 0.65rem;
+                animation: panelIn 0.3s var(--ease) both;
+            }
+            .player .track {
+                flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.1);
+                cursor: pointer; overflow: hidden; position: relative;
+            }
+            .player .fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--gold), var(--gold-soft)); transition: width 0.08s linear; }
+            .player .t { color: var(--dim); font-size: 0.78rem; font-variant-numeric: tabular-nums; min-width: 2.6rem; text-align: right; }
+            .player.playing #voice-toggle { border-color: var(--gold); color: var(--gold); }
             @media (prefers-reduced-motion: reduce) {
                 *, *::after { animation: none !important; transition: none !important; }
             }
@@ -202,7 +215,11 @@
                 <button id="ask">Ask</button>
                 <button id="mic" title="Ask out loud">Mic</button>
             </div>
-            <audio id="voice" controls preload="none"></audio>
+            <div id="voice" class="player hidden">
+                <button id="voice-toggle" class="ghost" aria-label="Play or pause">Play</button>
+                <div id="voice-track" class="track" role="slider" aria-label="Seek"><div id="voice-fill" class="fill"></div></div>
+                <span id="voice-time" class="t">0:00</span>
+            </div>
             <div style="margin-top: 0.65rem"><button id="close" class="ghost">Step away</button></div>
         </div>
 
