@@ -20,6 +20,7 @@ const ui = {
     top: $("top"),
     brief: $("brief"),
     status: $("status"),
+    disconnect: $("disconnect"),
     accuse: $("accuse"),
     crosshair: $("crosshair"),
     hint: $("hint"),
@@ -313,9 +314,17 @@ ui.accuse.addEventListener("click", () => {
 // A slow orbit with a little mouse parallax. It runs until the player enters.
 let title = true;
 let titleAngle = Math.random() * Math.PI * 2;
-const foyer = env.rooms.foyer?.center ?? [0, 0];
-const titleCenter = new THREE.Vector3(foyer[0], 1.35, foyer[1]);
-const titleRadius = 9.5;
+const foyer = env.rooms.foyer ?? { center: [0, 0], size: [12, 12] };
+const titleCenter = new THREE.Vector3(foyer.center[0], 1.35, foyer.center[1]);
+// Keep the orbit inside the room: radius from the smaller span, minus a margin.
+const titleRadius = Math.max(2.4, Math.min(foyer.size[0], foyer.size[1]) / 2 - 1.6);
+const titleBounds = {
+    minX: foyer.center[0] - foyer.size[0] / 2 + 0.9,
+    maxX: foyer.center[0] + foyer.size[0] / 2 - 0.9,
+    minZ: foyer.center[1] - foyer.size[1] / 2 + 0.9,
+    maxZ: foyer.center[1] + foyer.size[1] / 2 - 0.9,
+};
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 let parallax = { x: 0, y: 0 };
 addEventListener("mousemove", (event) => {
     parallax.x = event.clientX / innerWidth - 0.5;
@@ -324,10 +333,11 @@ addEventListener("mousemove", (event) => {
 
 function updateTitleCamera(dt) {
     titleAngle += dt * 0.055;
-    const px = titleCenter.x + Math.sin(titleAngle) * titleRadius + parallax.x * 3.2;
-    const pz = titleCenter.z + Math.cos(titleAngle) * titleRadius + parallax.y * 1.6;
-    camera.position.set(px, 1.75 - parallax.y * 1.1, pz);
-    camera.lookAt(titleCenter.x, 1.25, titleCenter.z);
+    const drift = titleRadius * 0.12; // small parallax, never enough to reach a wall
+    const px = clamp(titleCenter.x + Math.sin(titleAngle) * titleRadius + parallax.x * drift, titleBounds.minX, titleBounds.maxX);
+    const pz = clamp(titleCenter.z + Math.cos(titleAngle) * titleRadius + parallax.y * drift * 0.5, titleBounds.minZ, titleBounds.maxZ);
+    camera.position.set(px, 1.8 - parallax.y * 0.35, pz);
+    camera.lookAt(titleCenter.x, 1.3, titleCenter.z);
 }
 
 function enterHouse() {
@@ -348,6 +358,12 @@ function enterHouse() {
 
 ui.splashConnect.addEventListener("click", () => api.connect().catch((error) => showError(error.message)));
 ui.splashStart.addEventListener("click", enterHouse);
+ui.disconnect?.addEventListener("click", () => {
+    api.disconnect();
+    ui.status.textContent = "";
+    ui.splashHint.textContent = "Signed out. Connect again to play.";
+    showError("Signed out — the stored key was removed from this browser.");
+});
 
 (async () => {
     try {
@@ -357,6 +373,7 @@ ui.splashStart.addEventListener("click", enterHouse);
     }
     ui.status.textContent = api.signedIn() ? "connected" : "";
     ui.splashStart.disabled = false;
+    ui.disconnect?.classList.toggle("hidden", !api.signedIn());
     ui.splashHint.textContent = api.signedIn()
         ? "Connected. Enter the house when you are ready."
         : "Sign in to begin — you pay with your own Pollen.";

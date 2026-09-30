@@ -9,8 +9,44 @@ const STT_MODEL = "openai/whisper-large-v3";
 
 const REDIRECT_URI = `${location.origin}${location.pathname}`;
 
+// Local persistence: prefer localStorage so a sign-in survives reloads and new
+// tabs; fall back to sessionStorage where localStorage is unavailable.
+const store = {
+    get(key) {
+        try {
+            return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+        } catch {
+            return sessionStorage.getItem(key);
+        }
+    },
+    set(key, value) {
+        try {
+            localStorage.setItem(key, value);
+        } catch {
+            /* private mode / quota */
+        }
+        try {
+            sessionStorage.setItem(key, value);
+        } catch {
+            /* ignore */
+        }
+    },
+    remove(key) {
+        try {
+            localStorage.removeItem(key);
+        } catch {
+            /* ignore */
+        }
+        try {
+            sessionStorage.removeItem(key);
+        } catch {
+            /* ignore */
+        }
+    },
+};
+
 export const api = {
-    token: sessionStorage.getItem("wd_token") || null,
+    token: store.get("wd_token") || null,
 
     signedIn() {
         return Boolean(this.token);
@@ -27,8 +63,8 @@ export const api = {
             .replaceAll("/", "_")
             .replaceAll("=", "");
         const state = crypto.randomUUID();
-        sessionStorage.setItem("wd_v", verifier);
-        sessionStorage.setItem("wd_s", state);
+        store.set("wd_v", verifier);
+        store.set("wd_s", state);
         const params = new URLSearchParams({
             response_type: "code",
             client_id: CLIENT_ID,
@@ -48,10 +84,10 @@ export const api = {
         const code = params.get("code");
         const error = params.get("error");
         if (!code && !error) return false;
-        if (params.get("state") !== sessionStorage.getItem("wd_s")) throw new Error("Sign-in state mismatch.");
-        const verifier = sessionStorage.getItem("wd_v");
-        sessionStorage.removeItem("wd_s");
-        sessionStorage.removeItem("wd_v");
+        if (params.get("state") !== store.get("wd_s")) throw new Error("Sign-in state mismatch.");
+        const verifier = store.get("wd_v");
+        store.remove("wd_s");
+        store.remove("wd_v");
         history.replaceState({}, "", location.pathname);
         if (error) throw new Error(`Sign-in was declined or failed (${error}).`);
         const res = await fetch(`${ENTER_URL}/api/oauth/token`, {
@@ -68,13 +104,13 @@ export const api = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error_description ?? data.error ?? "Token exchange failed.");
         this.token = data.access_token;
-        sessionStorage.setItem("wd_token", this.token);
+        store.set("wd_token", this.token);
         return true;
     },
 
     disconnect() {
         this.token = null;
-        sessionStorage.removeItem("wd_token");
+        store.remove("wd_token");
     },
 
     // ---- models ----

@@ -185,7 +185,8 @@
                         <span class="sub">WASD to walk · mouse to look · E to talk</span>
                     </button>
                 </div>
-                <div id="splash-hint" class="status">Sign in to begin.</div>
+                <div class="row" style="display:flex;align-items:center;gap:.6rem"><div id="splash-hint" class="status" style="flex:1">Sign in to begin.</div><button id="disconnect" class="ghost hidden">Sign out</button></div>
+                <style>#splash.signed-in #disconnect { display: inline-block; }</style>
                 <div class="hint">
                     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; <kbd>E</kbd> talk &nbsp;·&nbsp; <kbd>Esc</kbd> step away
                 </div>
