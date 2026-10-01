@@ -33,10 +33,8 @@ const ROLES = [
     "the sous-chef", "the night porter", "the estate manager", "the old friend",
 ];
 
-const VOICES = [
-    "alloy", "echo", "fable", "onyx", "nova", "shimmer", "ash", "ballad",
-    "coral", "sage", "verse", "charlie", "george", "callum", "daniel", "fin",
-];
+// openai/tts-1-hd accepts exactly these six voices.
+const VOICES = ["alloy","echo","fable","onyx","nova","shimmer"];
 
 const SETTINGS = [
     "a snowbound country manor", "a luxury night train", "an isolated lighthouse",
