@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const main = readFileSync("C:/Users/cesus/whodunnit/src/main.js", "utf8");
-const html = readFileSync("C:/Users/cesus/whodunnit/index.html", "utf8");
+const main = readFileSync(new URL("./src/main.js", import.meta.url), "utf8");
+const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 
 const used = [...main.matchAll(/\$\("([a-z-]+)"\)/g)].map((m) => m[1]);
 const defined = [...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
@@ -25,7 +25,7 @@ assert.ok(html.includes("dist/bundle.js"), "index.html loads dist/bundle.js");
 console.log("bundle reference present");
 
 // case.js still produces the fields the 3D flow reads
-const casejs = readFileSync("C:/Users/cesus/whodunnit/case.js", "utf8");
+const casejs = readFileSync(new URL("./case.js", import.meta.url), "utf8");
 for (const field of ["isCulprit", "isWitness", "voice", "role", "name", "id", "coverRoom", "scene"]) {
     assert.ok(casejs.includes(field), `case.js produces ${field}`);
 }
